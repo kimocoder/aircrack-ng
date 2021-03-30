@@ -70,6 +70,10 @@ Below are instructions for installing the basic requirements to build
 
 ### Linux
 
+#### Arch Linux
+
+sudo pacman -Sy base-devel libnl openssl ethtool util-linux zlib libpcap sqlite pcre hwloc cmocka hostapd wpa_supplicant tcpdump screen iw usbutils pciutils`
+
 #### Debian/Ubuntu
 
     sudo apt-get install build-essential autoconf automake libtool pkg-config libnl-3-dev libnl-genl-3-dev libssl-dev ethtool shtool rfkill zlib1g-dev libpcap-dev libsqlite3-dev libpcre3-dev libhwloc-dev libcmocka-dev hostapd wpasupplicant tcpdump screen iw usbutils
@@ -104,7 +108,9 @@ Below are instructions for installing the basic requirements to build
 
 #### Alpine
 
-    sudo apk add gcc g++ make autoconf automake libtool libnl3-dev openssl-dev ethtool libpcap-dev cmocka-dev hostapd wpa_supplicant tcpdump screen iw pkgconf util-linux sqlite-dev pcre-dev linux-headers zlib-dev
+    sudo apk add gcc g++ make autoconf automake libtool libnl3-dev openssl-dev ethtool libpcap-dev cmocka-dev hostapd wpa_supplicant tcpdump screen iw pkgconf util-linux sqlite-dev pcre-dev linux-headers zlib-dev pciutils usbutils
+
+**Note**: Community repository needs to be enabled for iw
 
 ### BSD
 
@@ -376,23 +382,53 @@ the additional flag `--without-opt` to the `./configure` line:
 # Using precompiled binaries
 
 ## Linux/BSD
- * Use your package manager to download aircrack-ng
- * In most cases, they have an old version.
+
+Aircrack-ng is available in most distributions repositories. However, it is not always up to date.
+
+We provide up to date versions via PackageCloud for a number of Linux distrubutions:
+
+- development (each commit in this repo): https://packagecloud.io/aircrack-ng/git
+- stable releases: https://packagecloud.io/aircrack-ng/release
 
 ## Windows
- * Install the appropriate "monitor" driver for your card (standard drivers doesn't work for capturing data).
- * aircrack-ng suite is command line tools. So, you have to open a commandline
+ * Install the appropriate "monitor" driver for your card; standard drivers doesn't work for capturing data.
+ * Aircrack-ng suite is command line tools. So, you have to open a commandline
    `Start menu -> Run... -> cmd.exe` then use them
  * Run the executables without any parameters to have help
 
+# Continous integration
+
+- Travis (Linux/Mac): https://travis-ci.org/aircrack-ng/aircrack-ng
+- AppVeyor: https://ci.appveyor.com/project/aircrack-ng/aircrack-ng
+- Coverity Scan: https://scan.coverity.com/projects/aircrack-ng
+
+## Buildbots
+
+URL: https://buildbot.aircrack-ng.org/
+
+Linux buildbots:
+- CentOS
+- AArch64
+- Kali Linux
+- Armel Kali Linux
+- Armhf Kali Linux
+- Alpine Linux
+
+BSD buildbots:
+- OpenBSD
+- FreeBSD
+- NetBSD
+- DragonflyBSD
+
 # Documentation
 
+Some more information is present in the [README](README) file.
 
 Documentation, tutorials, ... can be found on https://aircrack-ng.org
 
-See also manpages and the forum.
+Support is available in the [forum](https://forum.aircrack-ng.org) and on IRC (in the channel #aircrack-ng in Freenode).
 
-For further information check the [README](README) file
+Every tool has its own manpage. For aircrack-ng, `man aircrack-ng`
 
 # Infrastructure sponsors
 

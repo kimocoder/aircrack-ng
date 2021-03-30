@@ -43,6 +43,10 @@ Note: CMocka, tcpdump, screen, HostAPd and WPA Supplicant should not be dependen
 
 ==== Linux ====
 
+===== Arch Linux =====
+
+    `sudo pacman -Sy base-devel libnl openssl ethtool util-linux zlib libpcap sqlite pcre hwloc cmocka hostapd wpa_supplicant tcpdump screen iw usbutils pciutils`
+
 ===== Debian/Ubuntu =====
 
     `sudo apt-get install build-essential autoconf automake libtool pkg-config libnl-3-dev libnl-genl-3-dev libssl-dev ethtool shtool rfkill zlib1g-dev libpcap-dev libsqlite3-dev libpcre3-dev libhwloc-dev libcmocka-dev hostapd wpasupplicant tcpdump screen iw usbutils`
@@ -77,7 +81,9 @@ Note: autoconf, automake, libtool, and pkgconfig in the repositories are too old
 
 ===== Alpine =====
 
-    `sudo apk add gcc g++ make autoconf automake libtool libnl3-dev openssl-dev ethtool libpcap-dev cmocka-dev hostapd wpa_supplicant tcpdump screen iw pkgconf util-linux sqlite-dev pcre-dev linux-headers zlib-dev`
+    `sudo apk add gcc g++ make autoconf automake libtool libnl3-dev openssl-dev ethtool libpcap-dev cmocka-dev hostapd wpa_supplicant tcpdump screen iw pkgconf util-linux sqlite-dev pcre-dev linux-headers zlib-dev pciutils usbutils`
+
+Note: Community repository needs to be enabled for iw
 
 ==== BSD ====
 
@@ -336,14 +342,17 @@ the additional flag `--without-opt` to the `./configure` line:
 
 === Linux/BSD ===
 
-* Use your package manager to download aircrack-ng
-* In most cases, they have an old version.
-* Packages (DEB and RPM) built from current git master are available on PackageCloud: https://packagecloud.io/aircrack-ng/git
+Aircrack-ng is available in most distributions repositories. However, it is not always up to date.
+
+We provide up to date versions via PackageCloud for a number of distrubutions:
+
+- development (each commit in this repo): https://packagecloud.io/aircrack-ng/git
+- stable releases: https://packagecloud.io/aircrack-ng/release
 
 === Windows ===
 
- * Install the appropriate "monitor" driver for your card (standard drivers doesn't work for capturing data).
- * aircrack-ng suite is command line tools. So, you have to open a commandline
+ * Install the appropriate "monitor" driver for your card; standard drivers doesn't work for capturing data.
+ * Aircrack-ng suite is command line tools. So, you have to open a commandline
    `Start menu -> Run... -> cmd.exe` then use them
  * Run the executables without any parameters to have help
 
@@ -357,16 +366,26 @@ Coverity Scan: https://scan.coverity.com/projects/aircrack-ng
 
 URL: https://buildbot.aircrack-ng.org/
 
-Current buildbots:
-- Intel Compiler
-- Alpine Linux
+Linux buildbots:
+- CentOS
+- AArch64
 - Kali Linux
 - Armel Kali Linux
 - Armhf Kali Linux
+- Alpine Linux
+
+BSD buildbots:
+- OpenBSD
 - FreeBSD
+- NetBSD
+- DragonflyBSD
 
 == Documentation ==
 
-Documentation, tutorials, ... can be found on https://www.aircrack-ng.org
+Some more information is present in the README file.
 
-See also manpages and the forum.
+Documentation, tutorials, ... can be found on https://aircrack-ng.org
+
+Support is available in the forum (https://forum.aircrack-ng.org) and on IRC (in the channel #aircrack-ng in Freenode).
+
+Every tool has its own manpage. For aircrack-ng, `man aircrack-ng`
