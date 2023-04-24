@@ -27,7 +27,7 @@ __data__ = 'This library supports airgraph-ng'
 
 """ Airgraph-ng Support Library """
 
-def apColor(Label,APcolorList): #OLDNAME AP_Label_Color
+def apColor(Label,APcolorList):	#OLDNAME AP_Label_Color
 	"""
         Inputs a list containing AP information and the AP color information
         Returns a graph object that holds AP information (colors and details)
@@ -36,19 +36,34 @@ def apColor(Label,APcolorList): #OLDNAME AP_Label_Color
 	APcolor = APcolorList[0]
 	fontColor = APcolorList[1]
 
-	graph = ['\t','"',Label[0],'"',
-		 '[label="',Label[0],
-		 '\\nEssid: ',Label[1].rstrip('\x00'), #NULL ESSID is equal to binary space, must remove
-		 '\\nChannel: ',Label[2],
-		 '\\nEncryption: ',Label[3],
-		 '\\nNumber of Clients: ','%s' %(Label[4]), #Check to see if this method is actually needed
-		 '"',' style=filled',
-		 ' fillcolor="',APcolor,
-		 '"',' fontcolor="',fontColor,
-		 '"',' fontsize=7','];\n']
-	return graph
+	return [
+		'\t',
+		'"',
+		Label[0],
+		'"',
+		'[label="',
+		Label[0],
+		'\\nEssid: ',
+		Label[1].rstrip('\x00'),
+		'\\nChannel: ',
+		Label[2],
+		'\\nEncryption: ',
+		Label[3],
+		'\\nNumber of Clients: ',
+		f'{Label[4]}',
+		'"',
+		' style=filled',
+		' fillcolor="',
+		APcolor,
+		'"',
+		' fontcolor="',
+		fontColor,
+		'"',
+		' fontsize=7',
+		'];\n',
+	]
 
-def clientColor(mac,color,label=""): #OLDNAME Client_Label_Color
+def clientColor(mac,color,label=""):	#OLDNAME Client_Label_Color
 	"""
 	Creates a label for the client information passed in (mac, color)
 	Returns a graph object
@@ -56,10 +71,22 @@ def clientColor(mac,color,label=""): #OLDNAME Client_Label_Color
 	"""
 	if label == "":
 		label = mac
-	graph = ['\t','"',mac,'"',' [label="',label,'"',' color="',color,'"',' fontsize=7','];\n']
-	return graph
+	return [
+		'\t',
+		'"',
+		mac,
+		'"',
+		' [label="',
+		label,
+		'"',
+		' color="',
+		color,
+		'"',
+		' fontsize=7',
+		'];\n',
+	]
 
-def encryptionColor(enc): #OLDNAME Return_Enc_type
+def encryptionColor(enc):	#OLDNAME Return_Enc_type
 	"""
         Take in the encryption used by the AP and return the proper color scheme based on that value.
         Returns a list containing the AP fill color and AP font color
@@ -76,26 +103,23 @@ def encryptionColor(enc): #OLDNAME Return_Enc_type
 		color = "black"
 		fontColor = "white"
 
-	APcolorList = (color,fontColor) #OLDNAME colorLS
-	return APcolorList
+	return color, fontColor
 
 
-def graphvizLinker(objA,sep,objB): #OLDNAME graphviz_link
+def graphvizLinker(objA,sep,objB):	#OLDNAME graphviz_link
 	"""
         Return a graph object that links 2 objects together. Both objects are passed in with a separator
         """
-	graph =['\t','"',objA,'"',sep,'"',objB,'"',';\n']
-	return graph
+	return ['\t','"',objA,'"',sep,'"',objB,'"',';\n']
 
-def dotClose(input,footer): #OLDNAME dot_close
+def dotClose(input,footer):	#OLDNAME dot_close
 	"""
         Close the graphiz config file
         Return final output to be written
         """
 	input.extend(footer)
 	input.append("}")
-	output = ''.join(input)
-	return output
+	return ''.join(input)
 
 def dotWrite(data): #OLDNAME dot_write
 	"""

@@ -37,23 +37,22 @@ class messages:
         """
         date         = localtime()
         self.date    = str(date[0])+str(date[1])+str(date[2])
-        self.time    = str(date[3])+"-"+str(date[4])+"-"+str(date[5])
+        self.time = f"{str(date[3])}-{str(date[4])}-{str(date[5])}"
         self.logging = log #log error messages to a file
         #logfile
-        self.logfile = dir+'/airdrop-ng_'+self.date+"-"+self.time+".log"
+        self.logfile = f'{dir}/airdrop-ng_{self.date}-{self.time}.log'
         self.color   = True #enable colors
         self.logBuff = [] #hold info before we write to a file
-        
+
         if self.logging == True:
             try:
                 file = open(self.logfile,'a')
-                file.write(self.date+"-"+self.time+"\n")
+                file.write(f"{self.date}-{self.time}" + "\n")
                 file.write("Airdrop-ng Logfile\n")
                 file.close
             except IOError as e:
                 self.logging = False
-                self.printError(["Could not open file "+self.logfile+"\n\n",
-                    str(e)+"\n"])
+                self.printError([f"Could not open file {self.logfile}" + "\n\n", str(e)+"\n"])
 
     def printMessage(self,message):
         """
@@ -89,8 +88,7 @@ class messages:
             file = open(self.logfile,'a')
         except IOError as e:
             self.logging = False
-            self.printError(["Could not open file "+self.logfile+"\n",
-                str(e)+"\n"])
+            self.printError([f"Could not open file {self.logfile}" + "\n", str(e)+"\n"])
             sys.exit(-1)
         if TYPE == 'list':
             for item in data:
@@ -113,9 +111,7 @@ class parseFiles:
             message.printError("\nAirdrop-ng rule file "+name+" does not exist")
             sys.exit(-1)
         rules = openFile.xreadlines()
-        cleanedRules = []
-        for line in rules:
-            cleanedRules.append(line.rstrip())
+        cleanedRules = [line.rstrip() for line in rules]
         openFile.close()
         return cleanedRules
         
@@ -124,17 +120,13 @@ class parseFiles:
         take an oui and find all matching mac addresses
         in the sniffed data
         """
-        clientLst =[] #empty client list to hold are found clients
         #check if were doing client oui beck or bssid oui check
         if flag == 'c':
             db = self.airoClient.keys()
         elif flag == 'b':
             db = self.airoAP.keys()
-        
-        for key in db:
-            if key[:8] in ouiLst:
-                clientLst.append(key)
-        return clientLst
+
+        return [key for key in db if key[:8] in ouiLst]
                 
     def ruleParse(self,ruleRaw):
         """
@@ -146,39 +138,35 @@ class parseFiles:
         bssidOuiList  = [] #list to store bssid ouis
         bssid         = None #place holder
         bssidList     = []
-        essidList     = {}
-        #build an essid to bssid lookup
-        #BUG may be here if a essid has multiple bssids
-        for ap in self.airoAP.values():
-            essidList[ap["bssid"]] = ap["essid"]
+        essidList = {ap["bssid"]: ap["essid"] for ap in self.airoAP.values()}
         compTrue = ruleRaw[1:].find(';')
         if compTrue != -1:
-                delim = ';'
+            delim = ';'
         else:
-            compTrue      = ruleRaw[1:].find(',') 
-            if compTrue == -1:
-                delim = ';'
-            else: 
-                delim = ','
+            compTrue      = ruleRaw[1:].find(',')
+            delim = ';' if compTrue == -1 else ','
         for postion in ruleRaw[pipe+1:].split(delim):
-            if postion.upper() == "ANY": #client any
+            if postion.upper() == "ANY":
                 break
+            cmac = postion.upper().replace("-",":")
+            if self.validMacChk(cmac) == True: 
+                #build a list of clients
+                clientList.append(cmac)
+            elif ouiLookup.compKeyChk(postion) == True: #company oui lookup
+                #check to see if it's a company name we can lookup
+                clientOuiList.extend(ouiLookup.lookup_company(postion))
+            elif ouiLookup.ouiKeyChk(postion) == True: #oui match
+                #check to see if it's an oui we can lookup
+                clientOuiList = [postion]
             else:
-                cmac = postion.upper().replace("-",":") 
-                if self.validMacChk(cmac) == True: 
-                    #build a list of clients
-                    clientList.append(cmac)
-                elif ouiLookup.compKeyChk(postion) == True: #company oui lookup
-                    #check to see if it's a company name we can lookup
-                    clientOuiList.extend(ouiLookup.lookup_company(postion))
-                elif ouiLookup.ouiKeyChk(postion) == True: #oui match
-                    #check to see if it's an oui we can lookup
-                    clientOuiList = [postion] 
-                else:
-                    message.printMessage([
+                message.printMessage(
+                    [
                         "\nInvalid mac or company name",
-                        "at "+postion+" in "+ruleRaw," Moving on to next rule"])
-                    return False
+                        f"at {postion} in {ruleRaw}",
+                        " Moving on to next rule",
+                    ]
+                )
+                return False
 
         #translate ouis then append them to client list
         if clientOuiList != []:
@@ -188,20 +176,20 @@ class parseFiles:
             clientOuiList = [] #empty the var           
         #begin bssid parse
         if ruleRaw[2:pipe].upper() != "ANY":
-            bssidMac = ruleRaw[2:pipe].replace("-",":") 
+            bssidMac = ruleRaw[2:pipe].replace("-",":")
             valid = self.validMacChk(bssidMac)
-            if valid == True :
+            if valid == True:
                 #match mac address
                 bssidList = [bssidMac.upper()]
-            
+
             elif bssidMac in essidList.values():
                 #bssidMac is provided by the user and at this point is most
                 #likely a essid
-                for bssid in essidList:
-                    #bssid is a true bssid
-                    if essidList[bssid] == bssidMac:
-                        bssidList.append(bssid)
-            
+                bssidList.extend(
+                    bssid
+                    for bssid, value in essidList.items()
+                    if value == bssidMac
+                )
             elif ouiLookup.compKeyChk(bssidMac) == True: #company oui lookup
                 bssidOuiList.extend(ouiLookup.lookup_company(bssidMac))
                 if bssidOuiList != []:
@@ -215,9 +203,13 @@ class parseFiles:
                     bssidList = self.translateOUI(bssidOuiList,'b')
                     bssidOuiList = [] #empty var
             else:
-                message.printMessage([
-                    "\nInvalid mac or company name",
-                    "at "+postion+" in "+ruleRaw," Moving on to next rule"])
+                message.printMessage(
+                    [
+                        "\nInvalid mac or company name",
+                        f"at {postion} in {ruleRaw}",
+                        " Moving on to next rule",
+                    ]
+                )
                 return False
         else:
             bssidList = ["ANY"]
@@ -226,56 +218,56 @@ class parseFiles:
             message.printMessage(["\nInvalid mac in bssid section of "+ruleRaw,
             "Or no matching ouis found in sniffed data",
             "Moving on to next rule"])
-            return False 
+            return False
         state = ruleRaw[0].lower()
         if len(bssidList) <= 1: 
             #if we only have one bssid we don't want to nest the dict in a list
-                for bssid in bssidList:
+            for bssid in bssidList:
                     
-                    if clientList == [] and postion.upper() != 'ANY':
-                        ruleDict = {
-                            "state":state,
-                            "bssid":bssid,
-                            "clients":[postion],
-                            "raw":ruleRaw}
-                    
-                    if clientList == [] and postion.upper() == 'ANY':
-                        ruleDict = {
-                            "state":state,
-                            "bssid":bssid,
-                            "clients":"ANY",
-                            "raw":ruleRaw}
-                    else:
-                        ruleDict = {
-                            "state":state,
-                            "bssid":bssid,
-                            "clients":clientList,
-                            "raw":ruleRaw}
-        elif len(bssidList) > 1:
-                #if more than one bssid nest each rule dict in a list
-                ruleDict = []
-                for bssid in bssidList:
-                    if clientList == [] and postion.upper() != 'ANY':
-                        ruleDict.append({
-                            "state":state,
-                            "bssid":bssid,
-                            "clients":[postion],
-                            "raw":ruleRaw
-                            })
-                    elif clientList == [] and postion.upper() == 'ANY':
-                        ruleDict.append({
-                            "state":state,
-                            "bssid":bssid,
-                            "clients":"ANY",
-                            "raw":ruleRaw
-                            })
-                    else:
-                        ruleDict.append({
-                            "state":state,
-                            "bssid":bssid,
-                            "clients":clientList,
-                            "raw":ruleRaw
-                            })
+                if not clientList and postion.upper() != 'ANY':
+                    ruleDict = {
+                        "state":state,
+                        "bssid":bssid,
+                        "clients":[postion],
+                        "raw":ruleRaw}
+
+                if not clientList and postion.upper() == 'ANY':
+                    ruleDict = {
+                        "state":state,
+                        "bssid":bssid,
+                        "clients":"ANY",
+                        "raw":ruleRaw}
+                else:
+                    ruleDict = {
+                        "state":state,
+                        "bssid":bssid,
+                        "clients":clientList,
+                        "raw":ruleRaw}
+        else:
+            #if more than one bssid nest each rule dict in a list
+            ruleDict = []
+            for bssid in bssidList:
+                if not clientList and postion.upper() != 'ANY':
+                    ruleDict.append({
+                        "state":state,
+                        "bssid":bssid,
+                        "clients":[postion],
+                        "raw":ruleRaw
+                        })
+                elif not clientList and postion.upper() == 'ANY':
+                    ruleDict.append({
+                        "state":state,
+                        "bssid":bssid,
+                        "clients":"ANY",
+                        "raw":ruleRaw
+                        })
+                else:
+                    ruleDict.append({
+                        "state":state,
+                        "bssid":bssid,
+                        "clients":clientList,
+                        "raw":ruleRaw
+                        })
         return ruleDict
     
     def validChk(self,rule):
@@ -283,12 +275,7 @@ class parseFiles:
         find commented lines
         """
         ruleStrip = rule.strip('\t').lstrip()
-        if ruleStrip == "":
-            return False
-        elif ruleStrip[0] == "#":
-            return False
-        else:
-            return True
+        return ruleStrip != "" and ruleStrip[0] != "#"
     
     def commentOff(self,rules):
         """
@@ -329,10 +316,7 @@ class parseFiles:
         """
         #regex will match format of DE:AD:BE:EF:00:00 or DE-AD-BE-EF-00-00
         check = '([a-fA-F0-9]{2}[:|\-]?){6}'
-        if re.match(check, mac): 
-            return True 
-        else: 
-            return False
+        return bool(re.match(check, mac))
 
 class ruleMatch:
     """
@@ -380,9 +364,7 @@ class ruleMatch:
         """
         Remove duplicates from list
         """
-        dict = {}
-        for item in List:
-            dict[item]=item
+        dict = {item: item for item in List}
         return dict.values()
     
     def ruleQue(self):

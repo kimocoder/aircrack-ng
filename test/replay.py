@@ -47,7 +47,7 @@ def recv_pkts(hdr, data):
     # end of manipulation
 
     # construct packet and replay
-    if replay == True:
+    if replay:
         data = header/packet
         sendp(data, iface=interface)
 

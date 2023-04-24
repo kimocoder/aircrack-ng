@@ -59,9 +59,9 @@ class macOUI_lookup:
         #a poor fix where if we have no file it trys to download it
         self.ouiTxtUrl   = "http://standards-oui.ieee.org/oui.txt"
         self.ouiUnPath   = install_dir#path to oui.txt if module is installed
-        self.ouiInPath   = install_dir + '/support/'         #path to oui.txt if module is not installed
+        self.ouiInPath = f'{install_dir}/support/'
         self.ouiTxt = aircrackOUI
-        
+
         self.ouiRaw      = self.ouiOpen()
         self.oui_company = self.ouiParse()  #dict where oui's are the keys to company names
         self.company_oui = self.companyParse()  #dict where company name is the key to oui's
@@ -73,30 +73,23 @@ class macOUI_lookup:
         compMatch = re.compile(name,re.I)
         if name in self.company_oui:
             return True
-        for key in self.company_oui.keys():
-                if compMatch.search(key) is not None:   
-                    return True
-        return False
+        return any(
+            compMatch.search(key) is not None for key in self.company_oui.keys()
+        )
 
     def ouiKeyChk(self,name):
         """
         check for a valid oui prefix
         """
 
-        if name in self.oui_company:
-            return True
-        else: 
-            return False
+        return name in self.oui_company
 
 
     def lookup_OUI(self,mac):
         """
         Lookup a oui and return the company name
         """
-        if self.ouiKeyChk(mac) is not False:
-            return self.oui_company[mac][0]
-        else: 
-            return False
+        return self.oui_company[mac][0] if self.ouiKeyChk(mac) is not False else False
     
     def lookup_company(self,companyLst):
         """

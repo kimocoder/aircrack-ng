@@ -39,31 +39,30 @@ nets = {}
 cracker = None
 
 class ServerHandler(SimpleHTTPRequestHandler):
-	def do_GET(s):
-		result = s.do_req(s.path)
+	def do_GET(self):
+		result = self.do_req(self.path)
 
 		if not result:
 			return
 
-		s.send_response(200)
-		s.send_header("Content-type", "text/plain")
-		s.end_headers()
-		s.wfile.write(bytes(result, "UTF-8"))
+		self.send_response(200)
+		self.send_header("Content-type", "text/plain")
+		self.end_headers()
+		self.wfile.write(bytes(result, "UTF-8"))
 
-	def do_POST(s):
+	def do_POST(self):
 		POST_failure = True
 
 		# Read data here and pass it, so we can handle chunked encoding
-		if ("dict" in s.path) or ("cap" in s.path):
+		if "dict" in self.path or "cap" in self.path:
 
-			tmp_file = "/tmp/" + next(tempfile._get_candidate_names())
+			tmp_file = f"/tmp/{next(tempfile._get_candidate_names())}"
 			with open(tmp_file, "wb") as fid:
-				if s.headers.get('Content-Length'):
-					cl = int(s.headers['Content-Length'])
-					fid.write(s.rfile.read(cl))
+				if self.headers.get('Content-Length'):
+					cl = int(self.headers['Content-Length'])
+					fid.write(self.rfile.read(cl))
 					POST_failure = False
-				# elif s.headers.get('Transfer-Encoding') and s.headers['Transfer-Encoding'] == "chunked":
-				elif s.headers.get('Transfer-Encoding') == "chunked":
+				elif self.headers.get('Transfer-Encoding') == "chunked":
 					# With Python3, we need to handle chunked encoding
 					# If someone has a better solution, I'm all ears
 
@@ -72,12 +71,12 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 						# Get size
 						while True:
-							c = s.rfile.read(1)
+							c = self.rfile.read(1)
 							if sys.version_info[0] >= 3:
 								c = chr(c[0])
 							if c == '\r':
 								# Skip next char ('\n')
-								c = s.rfile.read(1)
+								c = self.rfile.read(1)
 								break
 							chunk_size_hex += c
 
@@ -89,33 +88,33 @@ class ServerHandler(SimpleHTTPRequestHandler):
 						chunk_size = int(chunk_size_hex, 16)
 
 						# Read the amount of bytes
-						fid.write(s.rfile.read(chunk_size))
+						fid.write(self.rfile.read(chunk_size))
 					POST_failure = False
 
-			if (POST_failure == False):
-				if ("dict" in s.path):
-					s.do_upload_dict(tmp_file)
+			if not POST_failure:
+				if "dict" in self.path:
+					self.do_upload_dict(tmp_file)
 
-				if ("cap" in s.path):
-					s.do_upload_cap(tmp_file)
+				if "cap" in self.path:
+					self.do_upload_cap(tmp_file)
 
 		try:
-			s.send_response(200)
-			s.send_header("Content-type", "text/plain")
-			s.end_headers()
-			if POST_failure == False:
-				s.wfile.write(bytes("OK", "UTF-8"))
+			self.send_response(200)
+			self.send_header("Content-type", "text/plain")
+			self.end_headers()
+			if not POST_failure:
+				self.wfile.write(bytes("OK", "UTF-8"))
 			else:
-				s.wfile.write(bytes("NO", "UTF-8"))
+				self.wfile.write(bytes("NO", "UTF-8"))
 		except BrokenPipeError as bpe:
 			# Connection closed, ignore
 			pass
 
-	def do_upload_dict(s, filename):
+	def do_upload_dict(self, filename):
 		con = get_con()
 
 		f = "dcrack-dict"
-		c = f + ".gz"
+		c = f"{f}.gz"
 		os.rename(filename, c)
 
 		decompress(f)
@@ -126,25 +125,25 @@ class ServerHandler(SimpleHTTPRequestHandler):
 			for i, l in enumerate(fid):	pass
 			i += 1
 
-		n = "%s-%s.txt" % (f, h)
+		n = f"{f}-{h}.txt"
 		os.rename(f, n)
-		os.rename(c, "%s.gz" % n)
+		os.rename(c, f"{n}.gz")
 
 		c = con.cursor()
 		c.execute("INSERT into dict values (?, ?, 0)", (h, i))
 		con.commit()
 
-	def do_upload_cap(s, filename):
+	def do_upload_cap(self, filename):
 
-		tmp_cap = "/tmp/" + next(tempfile._get_candidate_names()) + ".cap"
-		os.rename(filename, tmp_cap + ".gz")
+		tmp_cap = f"/tmp/{next(tempfile._get_candidate_names())}.cap"
+		os.rename(filename, f"{tmp_cap}.gz")
 
 		decompress(tmp_cap)
-        
+
 		# Check file is valid
-		output = subprocess.check_output(['wpaclean', tmp_cap + ".tmp", tmp_cap])
+		output = subprocess.check_output(['wpaclean', f"{tmp_cap}.tmp", tmp_cap])
 		try:
-			os.remove(tmp_cap + ".tmp")
+			os.remove(f"{tmp_cap}.tmp")
 		except:
 			pass
 
@@ -152,14 +151,14 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		if len(output_split) > 2:
 			# We got more than 2 lines, which means there is a network
 			#  in there with a WPA/2 PSK handshake
-			os.rename(tmp_cap + ".gz", "dcrack.cap.gz")
+			os.rename(f"{tmp_cap}.gz", "dcrack.cap.gz")
 			os.rename(tmp_cap, "dcrack.cap")
 		else:
 			 # If nothing in the file, just delete it
 			os.remove(tmp_cap)
-			os.remove(tmp_cap + ".gz")
+			os.remove(f"{tmp_cap}.gz")
 
-	def do_req(s, path):
+	def do_req(self, path):
 		con = get_con()
 
 		c = con.cursor()
@@ -171,38 +170,35 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		con.commit()
 
 		if ("ping" in path):
-			return s.do_ping(path)
+			return self.do_ping(path)
 
 		if ("getwork" in path):
-			return s.do_getwork(path)
+			return self.do_getwork(path)
 
 		if ("dict" in path and "status" in path):
-			return s.do_dict_status(path)
+			return self.do_dict_status(path)
 
 		if ("dict" in path and "set" in path):
-			return s.do_dict_set(path)
+			return self.do_dict_set(path)
 
 		if ("dict" in path):
-			return s.get_dict(path)
+			return self.get_dict(path)
 
 		if ("net" in path and "/crack" in path):
-			return s.do_crack(path)
+			return self.do_crack(path)
 
 		if ("net" in path and "result" in path):
-			return s.do_result(path)
+			return self.do_result(path)
 
 		if ("cap" in path):
-			return s.get_cap(path)
+			return self.get_cap(path)
 
 		if ("status" in path):
-			return s.get_status()
+			return self.get_status()
 
-		if ("remove" in path):
-			return s.remove(path)
+		return self.remove(path) if ("remove" in path) else "error"
 
-		return "error"
-
-	def remove(s, path):
+	def remove(self, path):
 		p = path.split("/")
 		n = p[4].upper()
 		not_found = 0
@@ -216,8 +212,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		# Delete from nets
 		c = con.cursor()
 		c.execute("SELECT * from nets where bssid = ?", (n,))
-		r = c.fetchall()
-		if r:
+		if r := c.fetchall():
 			con.commit()
 			not_found += 1
 			c = con.cursor()
@@ -227,8 +222,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		# Delete from works
 		c = con.cursor()
 		c.execute("SELECT * from work where net = ?", (n,))
-		r = c.fetchall()
-		if r:
+		if r := c.fetchall():
 			con.commit()
 			not_found += 1
 			c = con.cursor()
@@ -236,18 +230,14 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		con.commit()
 
 		# If both failed, return NO.
-		if not_found == 2:
-			return "NO"
+		return "NO" if not_found == 2 else "OK"
 
-		# Otherwise, return OK
-		return "OK"
-
-	def get_status(s):
+	def get_status(self):
 		con = get_con()
 
 		c = con.cursor()
 		c.execute("SELECT * from clients")
-	
+
 		clients = [r['speed'] for r in c.fetchall()]
 
 		nets = []
@@ -265,14 +255,11 @@ class ServerHandler(SimpleHTTPRequestHandler):
 			if r['state'] != 2:
 				n["tot"] = dic["lines"]
 
-				did = 0
 				cur = con.cursor()
 				cur.execute("""SELECT * from work where net = ?
 						and dict = ? and state = 2""",
 						(n['bssid'], dic['id']))
-				for row in cur.fetchall():
-					did += row['end'] - row['start']
-
+				did = sum(row['end'] - row['start'] for row in cur.fetchall())
 				n["did"] = did
 
 			nets.append(n)
@@ -281,7 +268,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 		return json.dumps(d)
 
-	def do_result_pass(s, net, pw):
+	def do_result_pass(self, net, pw):
 		con = get_con()
 
 		pf = "dcrack-pass.txt"
@@ -292,27 +279,27 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 		cmd = ["aircrack-ng", "-w", pf, "-b", net, "-q", "dcrack.cap"]
 		p = subprocess.Popen(cmd, stdout=subprocess.PIPE, \
-			stdin=subprocess.PIPE)
+				stdin=subprocess.PIPE)
 
 		res = p.communicate()[0]
 		res = str(res)
 
 		os.remove(pf)
 
-		if not "KEY FOUND" in res:
+		if "KEY FOUND" not in res:
 			return "error"
 
-		s.net_done(net)
+		self.net_done(net)
 
 		c = con.cursor()
 		c.execute("UPDATE nets set pass = ? where bssid = ?", \
-			(pw, net))
+				(pw, net))
 
 		con.commit()
 
 		return "OK"
 
-	def net_done(s, net):
+	def net_done(self, net):
 		con = get_con()
 
 		c = con.cursor()
@@ -322,7 +309,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		c.execute("DELETE from work where net = ?", (net,))
 		con.commit()
 
-	def do_result(s, path):
+	def do_result(self, path):
 		con = get_con()
 
 		p = path.split("/")
@@ -335,7 +322,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 		# TODO: Verify client ID sending it
 		if "pass" in qs:
-			return s.do_result_pass(n, qs['pass'][0])
+			return self.do_result_pass(n, qs['pass'][0])
 
 		wl = qs['wl'][0]
 
@@ -372,36 +359,34 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		c.execute("SELECT * from dict where id = ? and lines = ?",
 			(wl, i))
 
-		r = c.fetchone()
-
-		if r:
-			s.net_done(n)
+		if r := c.fetchone():
+			self.net_done(n)
 
 		return "OK"
 
-	def get_cap(s, path):
-		return s.serve_file("dcrack.cap.gz")
+	def get_cap(self, path):
+		return self.serve_file("dcrack.cap.gz")
 
-	def get_dict(s, path):
+	def get_dict(self, path):
 		p = path.split("/")
 		n = p[4]
 
-		fn = "dcrack-dict-%s.txt.gz" % n
+		fn = f"dcrack-dict-{n}.txt.gz"
 
-		return s.serve_file(fn)
+		return self.serve_file(fn)
 
-	def serve_file(s, fn):
-		s.send_response(200)
-		s.send_header("Content-type", "application/x-gzip")
-		s.end_headers()
+	def serve_file(self, fn):
+		self.send_response(200)
+		self.send_header("Content-type", "application/x-gzip")
+		self.end_headers()
 
 		# XXX openat
 		with open(fn, "rb") as fid:
-			s.wfile.write(fid.read())
+			self.wfile.write(fid.read())
 
 		return None
 
-	def do_crack(s, path):
+	def do_crack(self, path):
 		con = get_con()
 
 		p = path.split("/")
@@ -416,14 +401,14 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		c = con.cursor()
 		c.execute("SELECT * from nets where bssid = ?", (n,))
 		r = c.fetchone()
-		if r == None:
+		if r is None:
 			# Not in there, add it
 			c.execute("INSERT into nets values (?, NULL, 1)", (n,))
 			con.commit()
 			return "OK"
 
 		# Network already exists but has failed cracking
-		if r['state'] == 2 and r['pass'] == None:
+		if r['state'] == 2 and r['pass'] is None:
 			c.execute("UPDATE nets SET state = 1 WHERE bssid = ?", (n,))
 			con.commit()
 			return "OK"
@@ -433,7 +418,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		con.commit()
 		return "NO"
 
-	def do_dict_set(s, path):
+	def do_dict_set(self, path):
 		con = get_con()
 
 		p = path.split("/")
@@ -450,7 +435,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 		return "OK"
 
-	def do_ping(s, path):
+	def do_ping(self, path):
 		con = get_con()
 
 		p = path.split("/")
@@ -464,20 +449,19 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 		c = con.cursor()
 		c.execute("SELECT * from clients where id = ?", (cid,))
-		r = c.fetchall()
-		if (not r):
-			c.execute("INSERT into clients values (?, ?, datetime())",
-				  (cid, int(speed)))
-		else:
+		if r := c.fetchall():
 			c.execute("""UPDATE clients set speed = ?, 
 					last = datetime() where id = ?""",
 					(int(speed), cid))
 
+		else:
+			c.execute("INSERT into clients values (?, ?, datetime())",
+				  (cid, int(speed)))
 		con.commit()
 
 		return "60"
 
-	def try_network(s, net, d):
+	def try_network(self, net, d):
 		con = get_con()
 
 		c = con.cursor()
@@ -486,14 +470,14 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 		r = c.fetchall()
 
-		s     = 5000000
+		self = 5000000
 		i     = 0
 		found = False
 
 		for row in r:
 			if found:
-				if i + s > row['start']:
-					s = row['start'] - i
+				if i + self > row['start']:
+					self = row['start'] - i
 				break
 
 			if (row['start'] <= i <= row['end']):
@@ -501,27 +485,24 @@ class ServerHandler(SimpleHTTPRequestHandler):
 			else:
 				found = True
 
-		if i + s > d['lines']:
-			s = d['lines'] - i
+		if i + self > d['lines']:
+			self = d['lines'] - i
 
-		if s == 0:
+		if self == 0:
 			return None
 
-		c.execute("INSERT into work values (NULL, ?, ?, ?, ?, datetime(), 1)",
-			(net['bssid'], d['id'], i, i + s))
+		c.execute(
+			"INSERT into work values (NULL, ?, ?, ?, ?, datetime(), 1)",
+			(net['bssid'], d['id'], i, i + self),
+		)
 
 		con.commit()
 
-		crack = { "net"   : net['bssid'], \
-			  "dict"  : d['id'], \
-			  "start" : i, \
-			  "end"   : i + s }
+		crack = {"net": net['bssid'], "dict": d['id'], "start": i, "end": i + self}
 
-		j = json.dumps(crack)
+		return json.dumps(crack)
 
-		return j
-
-	def do_getwork(s, path):
+	def do_getwork(self, path):
 		con = get_con()
 
 		c = con.cursor()
@@ -539,7 +520,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		r = c.fetchall()
 
 		for row in r:
-			res = s.try_network(row, d)
+			res = self.try_network(row, d)
 			if res:
 				return res
 
@@ -552,7 +533,7 @@ class ServerHandler(SimpleHTTPRequestHandler):
 		if res:
 			c.execute("DELETE from work where id = ?", (res['id'],))
 			for row in r:
-				res = s.try_network(row, d)
+				res = self.try_network(row, d)
 				if res:
 					return res
 
@@ -560,13 +541,13 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
 		return json.dumps(res)
 
-	def do_dict_status(s, path):
+	def do_dict_status(self, path):
 		p = path.split("/")
 
 		d = p[4]
 
 		try:
-			with open("dcrack-dict-%s.txt" % d): pass
+			with open(f"dcrack-dict-{d}.txt"): pass
 			return "OK"
 		except:
 			return "NO"
@@ -658,11 +639,9 @@ def get_cid():
 def do_ping(speed):
 	global url, cid
 
-	u = url + "client/" + str(cid) + "/ping?speed=" + str(speed)
+	u = f"{url}client/{str(cid)}/ping?speed={str(speed)}"
 	stuff = urlopen(u).read()
-	interval = int(stuff)
-
-	return interval
+	return int(stuff)
 
 def pinger(speed):
 	while True:
@@ -680,7 +659,7 @@ def try_ping(speed):
 def get_work():
 	global url, cid, cracker
 
-	u = url + "client/" + str(cid) + "/getwork"
+	u = f"{url}client/{str(cid)}/getwork"
 	stuff = urlopen(u).read()
 	stuff = stuff.decode("utf-8")
 
@@ -702,7 +681,7 @@ def get_work():
 	cap = get_cap(crack)
 
 	# If there's anything wrong with it, skip cracking
-	if wl == None or cap == None:
+	if wl is None or cap is None:
 		return
 
 	print("Cracking")
@@ -740,15 +719,15 @@ def get_work():
 
 		pw = res[start_pos:end_pos]
 
-		print("Key for %s is %s" % (crack['net'], pw))
+		print(f"Key for {crack['net']} is {pw}")
 
-		u = "%snet/%s/result?pass=%s" % (url, crack['net'], pw)
+		u = f"{url}net/{crack['net']}/result?pass={pw}"
 		stuff = urlopen(u).read()
 
 	return 0
 
 def decompress(fn):
-	with gzip.open(fn + ".gz") as fid1:
+	with gzip.open(f"{fn}.gz") as fid1:
 		with open(fn, "wb") as fid2:
 			fid2.writelines(fid1)
 
@@ -757,7 +736,7 @@ def setup_dict(crack):
 
 	d = crack['dict']
 	if not re.compile("^[a-f0-9]{5,40}").match(d):
-		print("Invalid dictionary: %s" % d)
+		print(f"Invalid dictionary: {d}")
 		return None
 
 	#if not re.match("^[0-9]+$", d['start']) or not re.match("^[0-9]+$", d['end']):
@@ -768,17 +747,17 @@ def setup_dict(crack):
 		print("Wordlist: End line position must be greater than start position")
 		return None
 
-	fn = "dcrack-client-dict-%s.txt" % d
+	fn = f"dcrack-client-dict-{d}.txt"
 
 	try:
 		with open(fn): pass
 	except:
-		print("Downloading dictionary %s" % d)
+		print(f"Downloading dictionary {d}")
 
-		u = "%sdict/%s" % (url, d)
+		u = f"{url}dict/{d}"
 		stuff = urlopen(u)
 
-		with open(fn + ".gz", "wb") as fid:
+		with open(f"{fn}.gz", "wb") as fid:
 			fid.write(stuff.read())
 
 		print("Uncompressing dictionary")
@@ -797,7 +776,7 @@ def setup_dict(crack):
 	try:
 		with open(s): pass
 	except:
-		print("Splitting dict %s" % s)
+		print(f"Splitting dict {s}")
 		with open(fn, "rb") as fid1:
 			with open(s, "wb") as fid2:
 				for i, l in enumerate(fid1):
@@ -837,11 +816,11 @@ def get_cap(crack):
 		return fn
 
 	print("Downloading cap")
-	u = "%scap/%s" % (url, bssid)
+	u = f"{url}cap/{bssid}"
 
 	stuff = urlopen(u)
 
-	with open(fn + ".gz", "wb") as fid:
+	with open(f"{fn}.gz", "wb") as fid:
 		fid.write(stuff.read())
 
 	print("Uncompressing cap")
@@ -851,7 +830,7 @@ def get_cap(crack):
 	check_cap(fn, bssid)
 
 	if bssid not in nets:
-		printf("Can't find net %s" % bssid)
+		printf(f"Can't find net {bssid}")
 		return None
 
 	return fn
@@ -912,10 +891,10 @@ def set_url():
 
 	host = sys.argv[2]
 
-	if not ":" in host:
+	if ":" not in host:
 		host = "%s:%d" % (host, port)
 
-	url = "http://" + host + "/" + "dcrack/"
+	url = f"http://{host}/dcrack/"
 
 def client():
 	global cid, cracker, url
@@ -966,7 +945,7 @@ def upload_file(url, f):
 
 def compress_file(f):
 	with open(f, "rb") as fid1:
-		with gzip.open(f + ".gz", "wb") as fid2:
+		with gzip.open(f"{f}.gz", "wb") as fid2:
 			fid2.writelines(fid1)
 
 def send_dict():
@@ -988,7 +967,7 @@ def send_dict():
 		return;
 
 	print("Cleaning up dictionary")
-	new_dict = "/tmp/" + next(tempfile._get_candidate_names()) + ".txt"
+	new_dict = f"/tmp/{next(tempfile._get_candidate_names())}.txt"
 	with open(new_dict, 'w') as fout:
 		with open(d) as fid:
 			for line in fid:
@@ -1001,25 +980,25 @@ def send_dict():
 		print("No valid passphrase in dictionary")
 		return
 
-	print("Calculating dictionary hash for cleaned up %s" % d)
+	print(f"Calculating dictionary hash for cleaned up {d}")
 	h = get_sha1sum_string(new_dict)
 
-	print("Hash is %s" % h)
+	print(f"Hash is {h}")
 
-	u = url + "dict/" + h + "/status"
+	u = f"{url}dict/{h}/status"
 	stuff = urlopen(u).read()
 
 	if "NO" in str(stuff):
-		u = url + "dict/create"
+		u = f"{url}dict/create"
 		print("Compressing dictionary")
 		compress_file(new_dict)
 		os.remove(new_dict)
 		print("Uploading dictionary")
-		upload_file(u, new_dict + ".gz")
-		os.remove(new_dict + ".gz")
+		upload_file(u, f"{new_dict}.gz")
+		os.remove(f"{new_dict}.gz")
 
-	print("Setting dictionary to %s" % d)
-	u = url + "dict/" + h + "/set"
+	print(f"Setting dictionary to {d}")
+	u = f"{url}dict/{h}/set"
 	stuff = urlopen(u).read()
 
 def send_cap():
@@ -1041,8 +1020,8 @@ def send_cap():
 		print("Capture file does not exists!")
 		return;
 
-	print("Cleaning cap %s" % cap)
-	clean_cap = "/tmp/" + next(tempfile._get_candidate_names()) + ".cap"
+	print(f"Cleaning cap {cap}")
+	clean_cap = f"/tmp/{next(tempfile._get_candidate_names())}.cap"
 	subprocess.Popen(["wpaclean", clean_cap, cap], \
 	   stderr=subprocess.STDOUT, stdout=subprocess.PIPE).communicate()[0]
 
@@ -1055,18 +1034,18 @@ def send_cap():
 	compress_file(clean_cap)
 	os.remove(clean_cap)
 
-	u = url + "cap/create"
-	ret = upload_file(u, clean_cap + ".gz")
+	u = f"{url}cap/create"
+	ret = upload_file(u, f"{clean_cap}.gz")
 	ret = ret.decode("UTF-8")
 	if ret == "OK":
 		print("Upload successful")
 	elif ret == "NO":
 		print("Failed uploading wordlist")
 	else:
-		print("Unknown return value from server: %s" % (ret,))
+		print(f"Unknown return value from server: {ret}")
 
 	# Delete temporary file
-	os.remove(clean_cap + ".gz")
+	os.remove(f"{clean_cap}.gz")
 
 def cmd_crack():
 	ret = net_cmd("crack")
@@ -1076,7 +1055,7 @@ def cmd_crack():
 	elif ret == "NO":
 		print("Failed adding cracking job!")
 	else:
-		print("Unknown return value from server: %s" % (ret,))
+		print(f"Unknown return value from server: {ret}")
 
 def net_cmd(op):
 	global url
@@ -1087,15 +1066,15 @@ def net_cmd(op):
 
 	bssid = sys.argv[4]
 
-	print("%s %s" % (op, bssid))
-	u = "%snet/%s/%s" % (url, bssid, op)
+	print(f"{op} {bssid}")
+	u = f"{url}net/{bssid}/{op}"
 	return urlopen(u).read()
 
 def cmd_remove():
 	net_cmd("remove")
 
 def cmd_status():
-	u = "%sstatus" % url
+	u = f"{url}status"
 	stuff = urlopen(u).read()
 
 	stuff = json.loads(stuff.decode("utf-8"))
@@ -1116,7 +1095,7 @@ def cmd_status():
 			out += n['pass']
 		elif "did" in n:
 			did = int(float(n['did']) / float(n['tot']) * 100.0)
-			out += str(did) + "%"
+			out += f"{did}%"
 			need += n['tot'] - n['did']
 		else:
 			out += "-"
@@ -1154,7 +1133,7 @@ def do_cmd():
 	elif "remove" in cmd:
 		cmd_remove()
 	else:
-		print("Unknown cmd %s" % cmd)
+		print(f"Unknown cmd {cmd}")
 		usage()
 
 def get_sha1sum_string(f):
@@ -1164,14 +1143,10 @@ def get_sha1sum_string(f):
 		return sha1.hexdigest()
 
 def is_sha1sum(h):
-	if re.match("[0-9a-fA-F]{40}", h):
-		return True
-	return False
+	return bool(re.match("[0-9a-fA-F]{40}", h))
 
 def is_bssid_value(b):
-	if re.match("([A-Fa-f0-9]{2}:){5}[A-Fa-f0-9]{2}", b):
-		return True
-	return False
+	return bool(re.match("([A-Fa-f0-9]{2}:){5}[A-Fa-f0-9]{2}", b))
 
 def main():
 	if len(sys.argv) < 2:
@@ -1179,9 +1154,7 @@ def main():
 
 	cmd = sys.argv[1]
 
-	if cmd == "server":
-		server()
-	elif cmd == "client":
+	if cmd == "client":
 		try:
 			client()
 		except KeyboardInterrupt:
@@ -1191,7 +1164,7 @@ def main():
 			do_cmd()
 		except URLError as ue:
 			if "Connection refused" in ue.reason:
-				print("Connection to %s refused" % (sys.argv[2],))
+				print(f"Connection to {sys.argv[2]} refused")
 			else:
 				print(ue.reason)
 		except socket.error as se:
@@ -1199,6 +1172,8 @@ def main():
 				print("Connection refused")
 			else:
 				print(se)
+	elif cmd == "server":
+		server()
 	else:
 		print("Unknown cmd", cmd)
 		usage()

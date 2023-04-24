@@ -46,24 +46,22 @@ def showBanner():
 	print "Airodump Joiner\nJoin Two Airodump CSV Files\n\n\t-i\tInput Files [ foo_name_1 foo_name_2 foo_name_3 .....] \n\t-o\tOutput File\n"
 
 def file_pool(files):
-	AP = []
-	Clients = []
-	for file in files:
-		ret = raw_lines(file)
-		ret = parse_file(ret,file)
-		AP.extend(ret[1])
-		Clients.extend(ret[0])
-	lines = [AP,Clients]
-	output = sort_file(lines)
-	return output
+        AP = []
+        Clients = []
+        for file in files:
+        	ret = raw_lines(file)
+        	ret = parse_file(ret,file)
+        	AP.extend(ret[1])
+        	Clients.extend(ret[0])
+        lines = [AP,Clients]
+        return sort_file(lines)
 
 def sort_file(input):
-	AP = ['BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key']
-	Clients = ['\nStation MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs']
-	Clients.extend(input[0])
-	AP.extend(input[1])
-	output = [AP,Clients]
-	return output
+        AP = ['BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key']
+        Clients = ['\nStation MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs']
+        Clients.extend(input[0])
+        AP.extend(input[1])
+        return [AP,Clients]
 
 	
 

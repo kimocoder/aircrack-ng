@@ -20,7 +20,6 @@ def createKey(essid,bssid):
 		'002662', 
 		'001505', 
 		'001EA7']
-	returndict = {}
 	output = 0 #key decimal value
 	multiplier = 1 #up by 36 each time
 	#remove formatting of bssid
@@ -29,14 +28,12 @@ def createKey(essid,bssid):
 		output += int(char,36)*multiplier
 		multiplier = multiplier * 36
 	key = "%X" % output #convert dec to hex
-	
-	returndict["best"] = bssid[2:6]+key 
+
+	returndict = {"best": bssid[2:6] + key}
 	if bssid[2:6] in actionOUI:
 		actionOUI.pop(bssid[2:6])
-	counter = 1
-	for oui in actionOUI: 
-		returndict["alt"+str(counter)] = oui[2:6]+key
-		counter += 1
+	for counter, oui in enumerate(actionOUI, start=1): 
+		returndict[f"alt{str(counter)}"] = oui[2:6]+key
 	return returndict
 	#return the key positions 34 and 56 of the bssid 
 	#are appended to the calculated key

@@ -12,8 +12,7 @@ class airDumpParse:
 		fileOpenResults = self.airDumpOpen(file)
 		parsedResults 	= self.airDumpParse(fileOpenResults)
 		capr 		= self.clientApChannelRelationship(parsedResults)
-		rtrnList 	= [capr,parsedResults]
-		return rtrnList
+		return [capr,parsedResults]
 		
 	def airDumpOpen(self,file):
 		"""
@@ -50,14 +49,13 @@ class airDumpParse:
 		except Exception:
 			print("You Seem to have provided an improper input file please make sure you are loading an airodump txt file and not a pcap")
 			Exit(1)
-	
+
 		del cleanedDump[stationStart] #Remove the heading line
 		clientList = cleanedDump[stationStart:] #Splits all client data into its own list
 		del cleanedDump[stationStart:] #The remaining list is all of the AP information
 		apDict = self.apTag(cleanedDump)
 		clientDict = self.clientTag(clientList)
-		resultDicts = [clientDict,apDict] #Put both dictionaries into a list
-		return resultDicts
+		return [clientDict,apDict]
 	
 	def apTag(self,devices):
 		"""
@@ -97,7 +95,7 @@ class airDumpParse:
 					"data":string_list[8],
 					"ip":string_list[9],
 					"essid":string_list[10][1:]}
-			if len(ap) != 0:
+			if ap:
 				dict[string_list[0]] = ap
 		return dict
 	
@@ -110,14 +108,16 @@ class airDumpParse:
 			client = {}
 			string_list = entry.split(',')
 			if len(string_list) >= 7:
-				client = {"station":string_list[0].replace(' ',''),
-					"fts":string_list[1],
-					"lts":string_list[2],
-					"power":string_list[3],
-					"packets":string_list[4],
-					"bssid":string_list[5].replace(' ',''),
-					"probe":string_list[6:][0:]}
-			if len(client) != 0:
+				client = {
+					"station": string_list[0].replace(' ', ''),
+					"fts": string_list[1],
+					"lts": string_list[2],
+					"power": string_list[3],
+					"packets": string_list[4],
+					"bssid": string_list[5].replace(' ', ''),
+					"probe": string_list[6:][:],
+				}
+			if client:
 				dict[string_list[0]] = client
 		return dict
 	
@@ -131,16 +131,15 @@ class airDumpParse:
 		NAP = [] #create a var to keep track of associated clients to AP's we can't see
 		apCount = {} #count number of Aps dict is faster the list stored as BSSID:number of essids
 		apClient = {} #dict that stores bssid and clients as a nested list
-		for key in (clients):
+		for key in clients:
 			mac = clients[key] #mac is the MAC address of the client
-			if mac["bssid"] != ' (notassociated) ': #one line of our dictionary of clients
-				if mac["bssid"] in AP: # if it is check to see it's an AP we can see and have info on
-					if mac["bssid"] in apClient: 
-						apClient[mac["bssid"]].extend([key]) #if key exists append new client
-					else: 
-						apClient[mac["bssid"]] = [key] #create new key and append the client
-				else: NAP.append(key) # stores the clients that are talking to an access point we can't see
-			else: NA.append(key) #stores the lines of the not associated AP's in a list
+			if mac["bssid"] == ' (notassociated) ': NA.append(key) #stores the lines of the not associated AP's in a list
+			elif mac["bssid"] in AP: # if it is check to see it's an AP we can see and have info on
+				if mac["bssid"] in apClient: 
+					apClient[mac["bssid"]].extend([key]) #if key exists append new client
+				else: 
+					apClient[mac["bssid"]] = [key] #create new key and append the client
+			else: NAP.append(key) # stores the clients that are talking to an access point we can't see
 		return apClient
 	
 

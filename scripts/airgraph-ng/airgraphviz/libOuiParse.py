@@ -33,12 +33,12 @@ import pdb
 #this lib is crap and needs to be rewritten -Textile 
 
 if os.getenv('AIRGRAPH_HOME') is not None and os.path.isdir(os.getenv('AIRGRAPH_HOME')):
-    path=os.getenv('AIRGRAPH_HOME') + '/support/'
-    if not os.path.isdir(path):
-        try:
-            os.mkdir(path)
-        except:
-            raise Exception("Can't create destination directory (%s)!" % path)
+	path=os.getenv('AIRGRAPH_HOME') + '/support/'
+	if not os.path.isdir(path):
+		try:
+			os.mkdir(path)
+		except:
+			raise Exception(f"Can't create destination directory ({path})!")
 elif os.path.isdir('./support/'):
     path='./support/'
 elif os.path.isdir('/usr/local/share/airgraph-ng/'):
@@ -46,60 +46,53 @@ elif os.path.isdir('/usr/local/share/airgraph-ng/'):
 elif os.path.isdir('/usr/share/airgraph-ng/'):
     path='/usr/share/airgraph-ng/'
 else:
-    raise Exception("Could not determine path, please, check your installation or set AIRGRAPH_HOME environment variable")
+	raise Exception("Could not determine path, please, check your installation or set AIRGRAPH_HOME environment variable")
 
 class macOUI_lookup:
     """
     A class for deaing with OUIs and deterimining device type
     """
     def __init__(self, oui=False):
-        """
+    	"""
         generate the two dictionaries and return them
         """
-        #a poor fix where if we have no file it trys to download it
-        self.ouiTxtUrl   = "http://standards-oui.ieee.org/oui.txt"
+    	#a poor fix where if we have no file it trys to download it
+    	self.ouiTxtUrl   = "http://standards-oui.ieee.org/oui.txt"
 
-        self.ouiTxt = oui
-        if not oui or not os.path.isfile(self.ouiTxt):
-            self.ouiUpdate()
-            self.ouiTxt = path + "oui.txt"
-        self.last_error = None
-        self.identDeviceDict(path + 'ouiDevice.txt')
-        self.identDeviceDictWhacMac(path + 'whatcDB.csv')
-        self.ouiRaw      = self.ouiOpen(self.ouiTxt)
-        self.oui_company = self.ouiParse()  #dict where oui's are the keys to company names
-        self.company_oui = self.companyParse()  #dict where company name is the key to oui's
+    	self.ouiTxt = oui
+    	if not oui or not os.path.isfile(self.ouiTxt):
+    		self.ouiUpdate()
+    		self.ouiTxt = f"{path}oui.txt"
+    	self.last_error = None
+    	self.identDeviceDict(f'{path}ouiDevice.txt')
+    	self.identDeviceDictWhacMac(f'{path}whatcDB.csv')
+    	self.ouiRaw      = self.ouiOpen(self.ouiTxt)
+    	self.oui_company = self.ouiParse()  #dict where oui's are the keys to company names
+    	self.company_oui = self.companyParse()  #dict where company name is the key to oui's
 
     def compKeyChk(self,name):
-        """
+    	"""
         check for valid company name key
         """
-        compMatch = re.compile(name,re.I)
-        if name in self.company_oui:
-            return True
-        for key in list(self.company_oui.keys()):
-                if compMatch.search(key) is not None:   
-                    return True
-        return False
+    	compMatch = re.compile(name,re.I)
+    	if name in self.company_oui:
+    	    return True
+    	return any(
+    		compMatch.search(key) is not None for key in list(self.company_oui.keys())
+    	)
 
     def ouiKeyChk(self,name):
-        """
+    	"""
         check for a valid oui prefix
         """
 
-        if name in self.oui_company: 
-            return True
-        else: 
-            return False
+    	return name in self.oui_company
 
     def lookup_OUI(self,mac):
-        """
+    	"""
         Lookup a oui and return the company name
         """
-        if self.ouiKeyChk(mac) is not False:
-            return self.oui_company[mac]
-        else:
-            return False
+    	return self.oui_company[mac] if self.ouiKeyChk(mac) is not False else False
 
     def lookup_company(self,companyLst):
         """
@@ -173,21 +166,21 @@ class macOUI_lookup:
         return company_oui
 
     def ouiUpdate(self):
-        """
+    	"""
         Grab the oui txt file off the ieee.org website
         """
-        try:
-            print(("Getting OUI file from %s to %s" %(self.ouiTxtUrl, path)))
-            if sys.version_info[0] == 2:
-                urllib.request.urlretrieve(self.ouiTxtUrl, path + "oui.txt")
-            else:
-                response = requests.get(self.ouiTxtUrl)
-                with open(path + "oui.txt", "wb") as file:
-                    bytes_written = file.write(response.content)
-            print("Completed Successfully")
-        except Exception as error:
-            print(("Could not download file:\n %s\n Exiting airgraph-ng" %(error)))
-            sys.exit(0)
+    	try:
+    		print(f"Getting OUI file from {self.ouiTxtUrl} to {path}")
+    		if sys.version_info[0] == 2:
+    			urllib.request.urlretrieve(self.ouiTxtUrl, f"{path}oui.txt")
+    		else:
+    			response = requests.get(self.ouiTxtUrl)
+    			with open(f"{path}oui.txt", "wb") as file:
+    				bytes_written = file.write(response.content)
+    		print("Completed Successfully")
+    	except Exception as error:
+    	    print(("Could not download file:\n %s\n Exiting airgraph-ng" %(error)))
+    	    sys.exit(0)
 
     def identDeviceDict(self,fname):
         """
@@ -209,24 +202,24 @@ class macOUI_lookup:
                 self.devicetooui[dat[0]] = [dat[1]]
 
     def identDeviceDictWhacMac(self,fname):
-        """
+    	"""
         Create two dicts allowing device type lookup from whatmac DB
         one for oui to device and one from the device to OUI group
         """
-        self.ouitodeviceWhatmac3 = {}
-        self.ouitodeviceWhatmac = {}
-        self.devicetoouiWhacmac = {}
-        data = self.ouiOpen(fname,'RL')
-        if data == False:
-            self.last_error = "Unble to open lookup file for parsing"
-            return False
-        for line in data:
-            dat = line.strip().split(',')
-            dat[0] = dat[0].upper()
-            self.ouitodeviceWhatmac[dat[0]] = dat[1]
-            self.ouitodeviceWhatmac3[dat[0][0:8]] = dat[1] # a db to support the 3byte lookup from whatmac
-            if dat[1] in list(self.devicetoouiWhacmac.keys()):
-                self.devicetoouiWhacmac[dat[1]].append(dat[0])
-            else:
-                self.devicetoouiWhacmac[dat[1]] = [dat[0]]
+    	self.ouitodeviceWhatmac3 = {}
+    	self.ouitodeviceWhatmac = {}
+    	self.devicetoouiWhacmac = {}
+    	data = self.ouiOpen(fname,'RL')
+    	if data == False:
+    	    self.last_error = "Unble to open lookup file for parsing"
+    	    return False
+    	for line in data:
+    		dat = line.strip().split(',')
+    		dat[0] = dat[0].upper()
+    		self.ouitodeviceWhatmac[dat[0]] = dat[1]
+    		self.ouitodeviceWhatmac3[dat[0][:8]] = dat[1]
+    		if dat[1] in list(self.devicetoouiWhacmac.keys()):
+    		    self.devicetoouiWhacmac[dat[1]].append(dat[0])
+    		else:
+    		    self.devicetoouiWhacmac[dat[1]] = [dat[0]]
 
