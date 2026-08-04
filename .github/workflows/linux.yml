@@ -200,9 +200,15 @@ jobs:
             chmod +x llvm.sh
             $SUDO ./llvm.sh ${COMPILER_VERSION}
           fi
-          if [ -z "$(command -v ${{ matrix.compiler.cc }})" ]; then
-            [ "${COMPILER_NAME}" = 'gcc' ] && $SUDO apt-get install -y ${{ matrix.compiler.cc }} ${{ matrix.compiler.cxx }}
-            [ "${COMPILER_NAME}" = 'clang' ] && $SUDO apt-get install -y ${{ matrix.compiler.cc }}
+          # gcc-N and g++-N are separate packages and the runner image does
+          # not necessarily carry both, so check for the C++ compiler too
+          # rather than assuming it comes along with the C one.
+          if [ "${COMPILER_NAME}" = 'gcc' ]; then
+            if [ -z "$(command -v ${{ matrix.compiler.cc }})" ] || [ -z "$(command -v ${{ matrix.compiler.cxx }})" ]; then
+              $SUDO apt-get install -y ${{ matrix.compiler.cc }} ${{ matrix.compiler.cxx }}
+            fi
+          elif [ -z "$(command -v ${{ matrix.compiler.cc }})" ]; then
+            $SUDO apt-get install -y ${{ matrix.compiler.cc }}
           fi
 
           $SUDO apt-get install -y git autoconf automake build-essential ccache ethtool expect hostapd iw lcov libcmocka-dev libgcrypt20-dev libhwloc-dev libnl-3-dev libnl-genl-3-dev libpcap-dev libpcre2-dev libsqlite3-dev libssl-dev libtool pkg-config rfkill screen shtool tcpdump usbutils wpasupplicant zlib1g-dev
