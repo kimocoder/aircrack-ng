@@ -1409,7 +1409,12 @@ listInterfaces() {
       fi
     done
   fi
-  if [ "${WIRELESS_TOOLS}" = "1" ] && [ -x "$(command -v sort 2>&1)" ]; then
+  #The sysfs scan above already finds every cfg80211 interface. Only fall back
+  #to wireless extensions when it turned up nothing, for the rare driver that
+  #does not set DEVTYPE=wlan: running iwconfig makes the kernel log
+  #"uses wireless extensions which will stop working for Wi-Fi 7 hardware",
+  #and WEXT is on its way out.
+  if [ -z "${iface_list}" ] && [ "${WIRELESS_TOOLS}" = "1" ] && [ -x "$(command -v sort 2>&1)" ]; then
     for iface in $(iwconfig 2> /dev/null | sed -e 's/^\(\w*\)\s.*/\1/' -e '/^$/d'); do
       iface_list="${iface_list} ${iface}"
     done
