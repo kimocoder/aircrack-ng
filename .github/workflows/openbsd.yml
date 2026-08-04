@@ -146,6 +146,12 @@ jobs:
         id: build
         uses: vmactions/openbsd-vm@v1
         with:
+          # Pin the OpenBSD release: the package list below targets the
+          # autoconf-2.71 / automake-1.16.5 versions and the single llvm /
+          # openssl candidates that ship with 7.6. The unpinned default now
+          # tracks a newer snapshot where those exact versions are gone and
+          # llvm/openssl became ambiguous, which broke `pkg_add`.
+          release: '7.6'
           envs: 'LANG TZ MAKE'
           usesh: true
           sync: rsync
@@ -157,7 +163,7 @@ jobs:
             export CXX="clang++"
             alias nproc='sysctl -n hw.ncpu'
             CPUS=$(nproc)
-            git config --global --add safe.directory /Users/runner/work/aircrack-ng/aircrack-ng
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
             export AUTOCONF_VERSION=2.71
             export AUTOMAKE_VERSION=1.16
             echo "::group::make distclean"
