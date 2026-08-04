@@ -1,6 +1,7 @@
 /*
  *  OS dependent APIs for Linux
  *
+ *  Copyright (C) 2018-2026 Christian Bremvaag <christian@aircrack-ng.org>
  *  Copyright (C) 2006-2018 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005 Christophe Devine
  *
@@ -1085,6 +1086,144 @@ nla_put_failure:
 static int linux_set_channel_nl80211(struct wif * wi, int channel)
 {
 	return linux_set_ht_channel_nl80211(wi, channel, CHANNEL_NO_HT);
+}
+
+/*
+ * Realtek, channel -1 gap: fall back to an nl80211 NL80211_CMD_GET_INTERFACE query
+ * when the legacy Wireless Extensions ioctl (SIOCGIWFREQ, used by linux_get_channel()
+ * above) fails and returns -1. Several current mac80211 drivers -- notably
+ * Realtek's rtw88/rtw89/rtl88x2bu, used by supported USB adapters
+ * -- never populate that ioctl once the interface is tuned via the modern
+ * nl80211 API (what airodump-ng/`iw` actually use to lock the channel), so it
+ * always reads back -1 even though the radio genuinely is on a real channel.
+ * aireplay-ng's own --ignore-negative-one flag only suppresses treating that
+ * -1 as fatal; every status line that logs "on channel %d" still prints the
+ * bogus value. Querying nl80211 directly for NL80211_ATTR_WIPHY_FREQ reads
+ * the *actual* channel the same way `iw dev <if> info` does, fixing the
+ * report instead of just hiding it.
+ */
+struct linux_get_channel_nl80211_cb_arg
+{
+	int chan;
+};
+
+static int linux_get_channel_nl80211_valid_handler(struct nl_msg * msg, void * arg)
+{
+	struct linux_get_channel_nl80211_cb_arg * res = arg;
+	struct genlmsghdr * gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr * tb[NL80211_ATTR_MAX + 1];
+
+	nla_parse(tb,
+		  NL80211_ATTR_MAX,
+		  genlmsg_attrdata(gnlh, 0),
+		  genlmsg_attrlen(gnlh, 0),
+		  NULL);
+
+	if (tb[NL80211_ATTR_WIPHY_FREQ])
+	{
+		int freq = (int) nla_get_u32(tb[NL80211_ATTR_WIPHY_FREQ]);
+		res->chan = getChannelFromFrequency(freq);
+	}
+
+	return NL_SKIP;
+}
+
+static int linux_get_channel_nl80211_ack_handler(struct nl_msg * msg, void * arg)
+{
+	int * ret = arg;
+	(void) msg;
+	*ret = 0;
+	return NL_STOP;
+}
+
+static int linux_get_channel_nl80211_finish_handler(struct nl_msg * msg, void * arg)
+{
+	int * ret = arg;
+	(void) msg;
+	*ret = 0;
+	return NL_SKIP;
+}
+
+static int linux_get_channel_nl80211_error_handler(struct sockaddr_nl * nla,
+								  struct nlmsgerr * err,
+								  void * arg)
+{
+	int * ret = arg;
+	(void) nla;
+	*ret = err->error;
+	return NL_STOP;
+}
+
+static int linux_get_channel_nl80211(struct wif * wi)
+{
+	struct priv_linux * dev = wi_priv(wi);
+	struct nl_msg * msg;
+	struct nl_cb * cb;
+	struct linux_get_channel_nl80211_cb_arg arg;
+	int devid, err;
+
+	arg.chan = -1;
+
+	devid = if_nametoindex(dev->main_if ? dev->main_if : wi_get_ifname(wi));
+	if (devid == 0) return -1;
+
+	msg = nlmsg_alloc();
+	if (!msg) return -1;
+
+	cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (!cb)
+	{
+		nlmsg_free(msg);
+		return -1;
+	}
+
+	genlmsg_put(msg,
+			0,
+			0,
+			genl_family_get_id(state.nl80211),
+			0,
+			0,
+			NL80211_CMD_GET_INTERFACE,
+			0);
+	NLA_PUT_U32(msg, NL80211_ATTR_IFINDEX, devid);
+
+	err = 1;
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, linux_get_channel_nl80211_valid_handler, &arg);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, linux_get_channel_nl80211_finish_handler, &err);
+	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, linux_get_channel_nl80211_ack_handler, &err);
+	nl_cb_err(cb, NL_CB_CUSTOM, linux_get_channel_nl80211_error_handler, &err);
+
+	if (nl_send_auto_complete(state.nl_sock, msg) < 0)
+	{
+		nl_cb_put(cb);
+		nlmsg_free(msg);
+		return -1;
+	}
+
+	while (err > 0)
+		nl_recvmsgs(state.nl_sock, cb);
+
+	nl_cb_put(cb);
+	nlmsg_free(msg);
+
+	return arg.chan;
+
+nla_put_failure:
+	nl_cb_put(cb);
+	nlmsg_free(msg);
+	return -1;
+}
+
+/*
+ * WEXT + NETLINK: linux_get_channel() falls back to nl80211 the moment the legacy
+ * ioctl reports -1 -- see linux_get_channel_nl80211()'s comment above for why
+ * that ioctl is unreliable on current Realtek mac80211 drivers.
+ */
+static int linux_get_channel_wext_or_nl80211(struct wif * wi)
+{
+	int chan = linux_get_channel(wi);
+	if (chan != -1) return chan;
+	return linux_get_channel_nl80211(wi);
 }
 #else // CONFIG_LIBNL
 
@@ -2401,10 +2540,11 @@ static struct wif * linux_open(char * iface)
 	linux_nl80211_init(&state);
 	wi->wi_set_ht_channel = linux_set_ht_channel_nl80211;
 	wi->wi_set_channel = linux_set_channel_nl80211;
+	wi->wi_get_channel = linux_get_channel_wext_or_nl80211;
 #else
 	wi->wi_set_channel = linux_set_channel;
-#endif // CONFIG_LIBNL
 	wi->wi_get_channel = linux_get_channel;
+#endif // CONFIG_LIBNL
 	wi->wi_set_freq = linux_set_freq;
 	wi->wi_get_freq = linux_get_freq;
 #ifdef CONFIG_LIBNL
