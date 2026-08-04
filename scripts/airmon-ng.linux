@@ -204,12 +204,42 @@ usage() {
 	exit 0
 }
 
+#List the interfaces currently assigned to a phy.
+#/sys/class/ieee80211/<phy>/device/net only exists for a phy backed by a bus
+#device, so virtual phys have to be found through the phy80211 link that every
+#wireless netdev carries instead.
+phyInterfaces() {
+	for netdev in /sys/class/net/*; do
+		[ -r "${netdev}/phy80211/name" ] || continue
+		if [ "$(cat "${netdev}/phy80211/name")" = "${1}" ]; then
+			printf "%s\n" "${netdev##*/}"
+		fi
+	done
+}
+
+#Does this phy list monitor among its supported interface modes? Phys that do
+#not (Android's virtual wiphy only offers managed, for instance) can never hold
+#a monitor interface, and asking iw for one just fails with -95.
+phySupportsMonitor() {
+	iw phy "${1}" info 2>/dev/null | \
+		sed -n '/Supported interface modes:/,/^\t[A-Za-z]/p' | \
+		grep -q '\* monitor$'
+}
+
 handleLostPhys() {
   MISSING_INTERFACE=""
   if [ -d /sys/class/ieee80211 ]; then
     for i in /sys/class/ieee80211/*; do
-      if [ -e "${i}" ] && [ ! -d "${i}/device/net" ]; then
+      if [ -e "${i}" ] && [ -z "$(phyInterfaces "${i##*/}")" ]; then
         MISSING_INTERFACE="${i##*/}"
+        #Nothing can be attached to a phy without monitor support, so do not
+        #ask a question whose only possible outcome is an iw failure.
+        if ! phySupportsMonitor "${MISSING_INTERFACE}"; then
+          if [ "${DEBUG}" = "1" ]; then
+            printf "\nSkipping %s, it has no monitor mode support.\n" "${MISSING_INTERFACE}"
+          fi
+          continue
+        fi
         printf "\nFound %s with no interfaces assigned, would you like to assign one to it? [y/n] " "${MISSING_INTERFACE}"
         yesorno
         retcode=$?
@@ -261,11 +291,10 @@ findFreeInterface() {
 				fi
 				IW_ERROR="$(iw phy "${PHYDEV}" interface add "wlan${i}${target_suffix}" type "${target_mode}" 2>&1)"
 				if [ -z "${IW_ERROR}" ]; then
-					if [ -d "/sys/class/ieee80211/${PHYDEV}/device/net" ]; then
-						#this should be fixed, but it's not going to be right now
-						# shellcheck disable=2045
-						for j in $(ls "/sys/class/ieee80211/${PHYDEV}/device/net/"); do
-							if [ "$(cat "/sys/class/ieee80211/${PHYDEV}/device/net/${j}/type")" = "${target_type}" ]; then
+					phy_ifaces="$(phyInterfaces "${PHYDEV}")"
+					if [ -n "${phy_ifaces}" ]; then
+						for j in ${phy_ifaces}; do
+							if [ "$(cat "/sys/class/net/${j}/type")" = "${target_type}" ]; then
 								#here is where we catch udev renaming our interface
 								k="${j#wlan}"
 								i="${k%mon}"
@@ -455,7 +484,12 @@ changeQcacldIfaceTypeMonitor() {
 }
 
 yesorno() {
-	read -r input
+	if ! read -r input; then
+		#stdin is closed, so the answer is never going to arrive and asking
+		#again just spins forever. Take it as a no.
+		printf "\n"
+		return 1
+	fi
 	case $input in
 		y) return 0 ;;
 		yes) return 0 ;;
