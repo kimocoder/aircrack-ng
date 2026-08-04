@@ -28,20 +28,14 @@
 #include <assert.h>
 #include <err.h>
 #include <fcntl.h>
-#include <errno.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <net/if.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <signal.h>
-#include <sys/uio.h>
 #include <sys/time.h>
 #include <time.h>
-#include <zlib.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <stdarg.h>
 #define __FAVOR_BSD
@@ -49,15 +43,18 @@
 #undef __FAVOR_BSD
 
 #include "aircrack-ng/defs.h"
-#include "aircrack-ng/support/communications.h"
-#include "aircrack-ng/osdep/osdep.h"
-#include "aircrack-ng/third-party/ieee80211.h"
-#include "easside.h"
-#include "aircrack-ng/third-party/if_arp.h"
-#include "aircrack-ng/third-party/ethernet.h"
-#include "aircrack-ng/version.h"
+#include "aircrack-ng/crypto/crypto.h"
 #include "aircrack-ng/osdep/byteorder.h"
+#include "aircrack-ng/osdep/osdep.h"
 #include "aircrack-ng/support/common.h"
+#include "aircrack-ng/support/communications.h"
+#include "aircrack-ng/third-party/ethernet.h"
+#include "aircrack-ng/third-party/ieee80211.h"
+#include "aircrack-ng/support/ieee80211_compat.h"
+#include "aircrack-ng/third-party/if_arp.h"
+#include "aircrack-ng/version.h"
+
+#include "easside.h"
 
 #define S_MTU 1500
 #define S_MCAST "\x01\x00\x5e\x01\x00"
@@ -275,38 +272,39 @@ static void reset(struct east_state * es)
 	printf_time("Restarting");
 }
 
-/********** RIPPED
-************/
-static unsigned short in_cksum(unsigned short * ptr, int nbytes)
+static uint16_t in_cksum(const uint8_t * restrict ptr, size_t nbytes)
 {
+	long sum = 0;
+	uint16_t oddbyte = 0;
+	uint16_t answer;
+
 	REQUIRE(ptr != NULL);
 
-	register long sum;
-	u_short oddbyte;
-	register u_short answer;
-
-	sum = 0;
+	// sum of data stream
 	while (nbytes > 1)
 	{
-		sum += *ptr++;
+		const uint16_t v = load16((uint8_t *) ptr);
+		sum += v;
+		ptr += 2;
 		nbytes -= 2;
 	}
 
 	if (nbytes == 1)
 	{
-		oddbyte = 0;
-		*((u_char *) &oddbyte) = *(u_char *) ptr;
+		*((uint8_t *) &oddbyte) = *ptr;
 		sum += oddbyte;
 	}
 
+	// reduce sum to uint16_t
 	sum = (sum >> 16) + (sum & 0xffff);
+	// add any carry bits
 	sum += (sum >> 16);
+
+	// one's complement
 	answer = ~sum;
 
 	return (answer);
 }
-/**************
-************/
 
 static void open_wifi(struct east_state * es)
 {
@@ -411,8 +409,8 @@ read_beacon(struct east_state * es, struct ieee80211_frame * wh, int len)
 	REQUIRE(es != NULL);
 	REQUIRE(wh != NULL);
 
-	ieee80211_mgt_beacon_t b = (ieee80211_mgt_beacon_t)(wh + 1);
-	u_int16_t capa;
+	ieee80211_mgt_beacon_t b = (ieee80211_mgt_beacon_t) (wh + 1);
+	uint16_t capa;
 	int bhlen = 12;
 	int got_ssid = 0, got_channel = 0;
 	struct owned * own = es->es_owned;
@@ -801,64 +799,6 @@ static void * get_da(struct ieee80211_frame * wh)
 		return (wh->i_addr3);
 }
 
-static int known_clear(void * clear, struct ieee80211_frame * wh, int len)
-{
-	REQUIRE(clear != NULL);
-	REQUIRE(wh != NULL);
-
-	unsigned char * ptr = clear;
-
-	/* IP */
-	if (!is_arp(wh, len))
-	{
-		unsigned short iplen = htons(len - 8);
-
-		printf("Assuming IP %d\n", len);
-
-		len = sizeof(S_LLC_SNAP_IP) - 1;
-		memcpy(ptr, S_LLC_SNAP_IP, len);
-		ptr += len;
-
-		len = 2;
-		memcpy(ptr, "\x45\x00", len);
-		ptr += len;
-
-		memcpy(ptr, &iplen, len);
-		ptr += len;
-
-		len = ptr - ((unsigned char *) clear);
-		return (len);
-	}
-	printf("Assuming ARP %d\n", len);
-
-	/* arp */
-	len = sizeof(S_LLC_SNAP_ARP) - 1;
-	memcpy(ptr, S_LLC_SNAP_ARP, len);
-	ptr += len;
-
-	/* arp hdr */
-	len = 6;
-	memcpy(ptr, "\x00\x01\x08\x00\x06\x04", len);
-	ptr += len;
-
-	/* type of arp */
-	len = 2;
-	if (memcmp(get_da(wh), "\xff\xff\xff\xff\xff\xff", 6) == 0)
-		memcpy(ptr, "\x00\x01", len);
-	else
-		memcpy(ptr, "\x00\x02", len);
-	ptr += len;
-
-	/* src mac */
-	len = 6;
-	memcpy(ptr, get_sa(wh), len);
-	ptr += len;
-
-	len = ptr - ((unsigned char *) clear);
-
-	return (len);
-}
-
 static void
 base_prga(struct east_state * es, struct ieee80211_frame * wh, int len)
 {
@@ -868,6 +808,7 @@ base_prga(struct east_state * es, struct ieee80211_frame * wh, int len)
 	unsigned char ct[1024];
 	unsigned char * data = (unsigned char *) (wh + 1);
 	int prgalen;
+	int ct_len;
 
 	memcpy(es->es_iv, data, 3);
 	data += 4;
@@ -878,24 +819,12 @@ base_prga(struct east_state * es, struct ieee80211_frame * wh, int len)
 		return;
 	}
 
-	prgalen = known_clear(ct, wh, len);
+	prgalen = known_clear(ct, &ct_len, NULL, (uint8_t *) wh, len);
 
 	xor(es->es_prga, ct, data, prgalen);
 	es->es_prgalen = prgalen;
 
 	save_prga(es);
-}
-
-static inline unsigned int get_crc32(void * data, int len)
-{
-	REQUIRE(data != NULL);
-
-	uLong crc;
-
-	crc = crc32(0L, Z_NULL, 0);
-	crc = crc32(crc, data, len);
-
-	return (crc);
 }
 
 static void
@@ -933,7 +862,7 @@ check_expand(struct east_state * es, struct ieee80211_frame * wh, int len)
 	xor(es->es_prga, es->es_clear, data, elen);
 
 	/* crc */
-	crc = htole32(get_crc32(es->es_clear, elen));
+	crc = htole32(calc_crc_buf(es->es_clear, elen));
 	xor(&es->es_prga[elen], &crc, data + elen, 4);
 
 	save_prga(es);
@@ -1110,7 +1039,7 @@ check_decrypt_ip(struct east_state * es, struct ieee80211_frame * wh, int len)
 	{
 		printf("\nGot checksum [could use to help bforce addr]\n");
 	}
-	else if ((es->es_prga_dlen >= off_s_addr)
+	else if ((es->es_prga_dlen >= off_s_addr) //-V695
 			 && (es->es_prga_dlen <= (off_s_addr + 4)))
 	{
 		unsigned char ip[4];
@@ -1128,7 +1057,7 @@ check_decrypt_ip(struct east_state * es, struct ieee80211_frame * wh, int len)
 
 		if (es->es_have_src && iplen == 3) found_net_addr(es, ip);
 	}
-	else if ((es->es_prga_dlen >= off_d_addr)
+	else if ((es->es_prga_dlen >= off_d_addr) //-V695
 			 && (es->es_prga_dlen <= (off_d_addr + 4)))
 	{
 		unsigned char dip[4];
@@ -1372,7 +1301,7 @@ redirect_enque(struct east_state * es, struct ieee80211_frame * wh, int len)
 				slot->rp_id,
 				s,
 				d,
-				(uintmax_t)((size_t) len - sizeof(*wh) - 8),
+				(uintmax_t) ((size_t) len - sizeof(*wh) - 8),
 				queue_len(es));
 }
 
@@ -1682,15 +1611,6 @@ static void send_assoc(struct east_state * es, struct timeval * tv)
 	send_frame(es, wh, len);
 }
 
-static inline void put_crc32(void * data, int len)
-{
-	REQUIRE(data != NULL);
-
-	unsigned int * ptr = (unsigned int *) ((char *) data + len);
-
-	*ptr = get_crc32(data, len);
-}
-
 static void expand_prga(struct east_state * es, struct timeval * tv)
 {
 	REQUIRE(es != NULL);
@@ -1773,7 +1693,7 @@ static void expand_prga(struct east_state * es, struct timeval * tv)
 	memcpy(data, es->es_clearp, dlen);
 	es->es_clearpnext = es->es_clearp + dlen;
 
-	put_crc32(data, dlen);
+	add_crc32(data, dlen);
 	xor(data, data, es->es_prga, es->es_prgalen);
 
 	/* send frag */
@@ -1815,7 +1735,7 @@ static void decrypt_packet(struct east_state * es, struct timeval * tv)
 	data += 4;
 	dlen = es->es_prga_dlen - 4 + 1;
 	memcpy(data, es->es_clear, dlen);
-	put_crc32(data, dlen);
+	add_crc32(data, dlen);
 	xor(data, data, es->es_prga_d, es->es_prga_dlen + 1);
 
 	printf_time("Guessing prga byte %d with %.2X\r",
@@ -1839,14 +1759,18 @@ static void decrypt_arp(struct east_state * es, struct timeval * tv)
 		unsigned char * ct;
 		struct ieee80211_frame * wh
 			= (struct ieee80211_frame *) es->es_packet_arp;
-		int len;
+		int len, clear_len;
 		es->es_astate = AS_DECRYPT_ARP;
 
 		ct = (unsigned char *) (wh + 1);
 		memcpy(es->es_prga_div, ct, 3);
 		ct += 4;
 
-		len = known_clear(clear, wh, 8 + sizeof(struct arphdr) + 10 * 2);
+		len = known_clear(clear,
+						  &clear_len,
+						  NULL,
+						  (uint8_t *) wh,
+						  8 + sizeof(struct arphdr) + 10 * 2);
 		xor(prga, clear, ct, len);
 		prga += len;
 
@@ -1972,7 +1896,7 @@ static void send_whohas(struct east_state * es, struct timeval * tv)
 	data += 4;
 
 	dlen = data - datas;
-	put_crc32(datas, dlen);
+	add_crc32(datas, dlen);
 	assert(es->es_prgalen >= dlen + 4);
 	xor(datas, datas, es->es_prga, dlen + 4);
 
@@ -2026,7 +1950,7 @@ static void check_inet(struct east_state * es, struct timeval * tv)
 	iph->ip_p = IPPROTO_UDP;
 	iph->ip_src = es->es_myip;
 	iph->ip_dst = es->es_srvip;
-	iph->ip_sum = in_cksum((unsigned short *) iph, 20);
+	iph->ip_sum = in_cksum((uint8_t *) iph, 20);
 
 	/* udp */
 	uh = (struct udphdr *) (iph + 1); //-V1027
@@ -2045,7 +1969,7 @@ static void check_inet(struct east_state * es, struct timeval * tv)
 	data += S_HELLO_LEN;
 
 	dlen = data - datas;
-	put_crc32(datas, dlen);
+	add_crc32(datas, dlen);
 	ALLEGE(es->es_prgalen >= dlen + 4);
 	xor(datas, datas, es->es_prga, dlen + 4);
 
@@ -2096,7 +2020,7 @@ static void redirect_sendip(struct east_state * es, struct rpacket * rp)
 	iph->ip_p = IPPROTO_UDP;
 	iph->ip_src = es->es_myip;
 	iph->ip_dst = es->es_srvip;
-	iph->ip_sum = in_cksum((unsigned short *) iph, 20);
+	iph->ip_sum = in_cksum((uint8_t *) iph, 20);
 
 	/* udp */
 	uh = (struct udphdr *) (iph + 1); //-V1027
@@ -2113,7 +2037,7 @@ static void redirect_sendip(struct east_state * es, struct rpacket * rp)
 	data = (unsigned char *) id;
 
 	dlen = data - datas;
-	put_crc32(datas, dlen);
+	add_crc32(datas, dlen);
 	assert(es->es_prgalen >= dlen + 4);
 	xor(datas, datas, es->es_prga, dlen + 4);
 
@@ -2407,7 +2331,7 @@ static void read_tap(struct east_state * es)
 	data += 8;
 
 	dlen = dlen - 14 + 8;
-	put_crc32(datas, dlen);
+	add_crc32(datas, dlen);
 	ALLEGE(es->es_prgalen >= dlen + 4);
 	xor(datas, datas, es->es_prga, dlen + 4);
 

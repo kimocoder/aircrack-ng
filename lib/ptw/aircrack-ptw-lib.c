@@ -86,7 +86,7 @@ typedef struct
 	double difference;
 } doublesorthelper;
 
-// The rc4 initial state, the idendity permutation
+// The rc4 initial state, the identity permutation
 static const uint32_t rc4initial[] = {
 	0,   1,   2,   3,   4,   5,   6,   7,   8,   9,   10,  11,  12,  13,  14,
 	15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,
@@ -435,6 +435,8 @@ static void guesskeybytes(
 	return;
 }
 
+#define PTW_CORRECTNESS_MIN_SESSION_COUNT 3
+#define PTW_CORRECTNESS_SESSION_COUNT 10
 /*
  * Is a guessed key correct?
  */
@@ -444,18 +446,29 @@ static int correct(PTW_attackstate * state, uint8_t * key, int keylen)
 	REQUIRE(key != NULL && keylen > 0);
 
 	int i;
-	int k;
+	int end_check;
 
 	// We need at least 3 sessions to be somehow certain
-	if (state->sessions_collected < 3)
+	if (state->sessions_collected < PTW_CORRECTNESS_MIN_SESSION_COUNT)
 	{
 		return 0;
 	}
 
 	tried++;
 
-	k = rand_u32() % (state->sessions_collected - 10);
-	for (i = k; i < k + 10; i++)
+	// Validate against 10 sessions at a random place ...
+	if (state->sessions_collected > PTW_CORRECTNESS_SESSION_COUNT)
+	{
+		i = rand_u32() % (state->sessions_collected - PTW_CORRECTNESS_SESSION_COUNT + 1);
+		end_check = i + PTW_CORRECTNESS_SESSION_COUNT;
+	}
+	else
+	{
+		// ... or against all of them if we don't have 10
+		i = 0;
+		end_check = state->sessions_collected;
+	}
+	for (; i < end_check; i++)
 	{
 		if (!state->rc4test(key,
 							keylen,

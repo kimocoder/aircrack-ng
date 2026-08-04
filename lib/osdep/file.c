@@ -174,8 +174,8 @@ static int file_read(struct wif * wi,
 					ri->ri_noise = (int32_t) load32_le(buf + 0x33 + 12);
 					ri->ri_rate = load32_le(buf + 0x33 + 24) * 500000;
 
-					got_signal = 1;
-					got_noise = 1;
+					// got_signal = 1;
+					// got_noise = 1;
 				}
 			}
 			else
@@ -230,6 +230,7 @@ static int file_read(struct wif * wi,
 		ts->tv_nsec = pkh.tv_usec * 1000UL;
 	}
 
+	if (off < 0 || off >= len) return -1; //-V560
 	memcpy(h80211, &buf[off], rc);
 
 	return rc;

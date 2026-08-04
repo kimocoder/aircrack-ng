@@ -1,7 +1,7 @@
 /*
  *  pcap-compatible 802.11 packet sniffer
  *
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005 Christophe Devine
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -61,17 +61,11 @@
 #include <errno.h>
 #include <time.h>
 #include <getopt.h>
-#include <fcntl.h>
 #include <pthread.h>
-#include <termios.h>
 #include <limits.h>
+#include <inttypes.h>
 
-#include <sys/wait.h>
-
-#ifdef HAVE_PCRE
-#include <pcre.h>
-#endif
-
+#include "aircrack-ng/pcre/compat-pcre.h"
 #include "aircrack-ng/defs.h"
 #include "aircrack-ng/version.h"
 #include "aircrack-ng/support/pcap_local.h"
@@ -102,6 +96,7 @@ static const char * OUI_PATHS[]
 	   "/usr/share/aircrack-ng/airodump-ng-oui.txt",
 	   "/var/lib/misc/oui.txt",
 	   "/usr/share/misc/oui.txt",
+	   "/usr/share/hwdata/oui.txt",
 	   "/var/lib/ieee-data/oui.txt",
 	   "/usr/share/ieee-data/oui.txt",
 	   "/etc/manuf/oui.txt",
@@ -112,17 +107,17 @@ static const char * OUI_PATHS[]
 static int read_pkts = 0;
 
 static int abg_chans[]
-	= {1,   7,   13,  2,   8,   3,   14,  9,   4,   10,  5,   11,  6,
-	   12,  36,  38,  40,  42,  44,  46,  48,  50,  52,  54,  56,  58,
-	   60,  62,  64,  100, 102, 104, 106, 108, 110, 112, 114, 116, 118,
+	= {1,	7,	 13,  2,   8,	3,	 14,  9,   4,	10,	 5,	  11,  6,
+	   12,	36,	 38,  40,  42,	44,	 46,  48,  50,	52,	 54,  56,  58,
+	   60,	62,	 64,  100, 102, 104, 106, 108, 110, 112, 114, 116, 118,
 	   120, 122, 124, 126, 128, 132, 134, 136, 138, 140, 142, 144, 149,
 	   151, 153, 155, 157, 159, 161, 165, 169, 173, 0};
 
 static int bg_chans[] = {1, 7, 13, 2, 8, 3, 14, 9, 4, 10, 5, 11, 6, 12, 0};
 
 static int a_chans[]
-	= {36,  38,  40,  42,  44,  46,  48,  50,  52,  54,  56,  58,
-	   60,  62,  64,  100, 102, 104, 106, 108, 110, 112, 114, 116,
+	= {36,	38,	 40,  42,  44,	46,	 48,  50,  52,	54,	 56,  58,
+	   60,	62,	 64,  100, 102, 104, 106, 108, 110, 112, 114, 116,
 	   118, 120, 122, 124, 126, 128, 132, 134, 136, 138, 140, 142,
 	   144, 149, 151, 153, 155, 157, 159, 161, 165, 169, 173, 0};
 
@@ -146,10 +141,14 @@ static struct local_options
 	struct NA_info * na_1st;
 	struct oui * manufList;
 
+	pMAC_t rBSSID;
 	unsigned char prev_bssid[6];
 	char ** f_essid;
 	int f_essid_count;
-#ifdef HAVE_PCRE
+#ifdef HAVE_PCRE2
+	pcre2_code * f_essid_regex;
+	pcre2_match_data * f_essid_match_data;
+#elif defined HAVE_PCRE
 	pcre * f_essid_regex;
 #endif
 	char * dump_prefix;
@@ -182,7 +181,8 @@ static struct local_options
 	int * own_channels; /* custom channel list  */
 	int * own_frequencies; /* custom frequency list  */
 
-	int asso_client; /* only show associated clients */
+	int asso_station; /* only show associated stations */
+	int unasso_station; /* only show unassociated stations */
 
 	unsigned char wpa_bssid[6]; /* the wpa handshake bssid   */
 	char message[512];
@@ -190,7 +190,7 @@ static struct local_options
 
 	char is_berlin; /* is the switch --berlin set? */
 	int numaps; /* number of APs on the current list */
-	int maxnumaps; /* maximum nubers of APs on the list */
+	int maxnumaps; /* maximum numbers of APs on the list */
 	int maxaps; /* number of all APs found */
 	int berlin; /* number of seconds it takes in berlin to fill the whole screen
 				   with APs*/
@@ -230,6 +230,7 @@ static struct local_options
 	char * freqstring;
 	int freqoption;
 	int chanoption;
+	int ignore_other_channels;
 	int active_scan_sim; /* simulates an active scan, sending probe requests */
 
 	/* Airodump-ng start time: for kismet netxml file */
@@ -271,13 +272,18 @@ static struct local_options
 	int background_mode;
 
 	unsigned long min_pkts;
+	int16_t min_power;
+	int8_t min_rxq;
 
 	int relative_time; /* read PCAP in psuedo-real-time */
+
+	int color_on;
+	int color;
 } lopt;
 
 static void resetSelection(void)
 {
-	lopt.sort_by = SORT_BY_POWER;
+	lopt.sort_by = SORT_BY_NOTHING;
 	lopt.sort_inv = 1;
 
 	lopt.relative_time = 0;
@@ -311,16 +317,39 @@ static void color_on(void)
 {
 	struct AP_info * ap_cur;
 	struct ST_info * st_cur;
-	int color = 1;
-
-	color_off();
+	int i;
+	int match;
 
 	ap_cur = lopt.ap_end;
 
 	while (ap_cur != NULL)
 	{
-		if (ap_cur->nb_pkt < lopt.min_pkts
-			|| time(NULL) - ap_cur->tlast > lopt.berlin)
+		// Don't filter unassociated stations by number of packets
+		if (memcmp(ap_cur->bssid, BROADCAST, 6) != 0
+			&& ap_cur->nb_pkt < lopt.min_pkts)
+		{
+			ap_cur = ap_cur->prev;
+			continue;
+		}
+
+		if (time(NULL) - ap_cur->tlast > lopt.berlin)
+		{
+			ap_cur = ap_cur->prev;
+			continue;
+		}
+
+		// Don't filter unassociated stations by power
+		if (memcmp(ap_cur->bssid, BROADCAST, 6) != 0
+			&& ap_cur->avg_power < (int) lopt.min_power)
+		{
+			ap_cur = ap_cur->prev;
+			continue;
+		}
+
+		// Don't filter unassociated stations by RXQ
+		if (memcmp(ap_cur->bssid, BROADCAST, 6) != 0
+			&& ((lopt.singlechan || lopt.singlefreq)
+				&& (ap_cur->rx_quality < (int) lopt.min_rxq)))
 		{
 			ap_cur = ap_cur->prev;
 			continue;
@@ -333,12 +362,34 @@ static void color_on(void)
 			continue;
 		}
 
-		// Don't filter unassociated clients by ESSID
+		// Don't filter unassociated stations by ESSID
 		if (memcmp(ap_cur->bssid, BROADCAST, 6) != 0
 			&& is_filtered_essid(ap_cur->essid))
 		{
 			ap_cur = ap_cur->prev;
 			continue;
+		}
+
+		// Don't filter unassociated stations by channel
+		if (memcmp(ap_cur->bssid, BROADCAST, 6) != 0 && lopt.chanoption
+			&& lopt.ignore_other_channels)
+		{
+			i = 0;
+			match = 0;
+			while (lopt.own_channels[i])
+			{
+				if (ap_cur->channel == lopt.own_channels[i])
+				{
+					match = 1;
+					break;
+				}
+				i++;
+			}
+			if (match != 1)
+			{
+				ap_cur = ap_cur->prev;
+				continue;
+			}
 		}
 
 		st_cur = lopt.st_end;
@@ -352,13 +403,16 @@ static void color_on(void)
 				continue;
 			}
 
-			if (!memcmp(ap_cur->bssid, BROADCAST, 6) && lopt.asso_client)
+			if (((memcmp(ap_cur->bssid, BROADCAST, 6) == 0)
+				 && lopt.asso_station)
+				|| ((memcmp(ap_cur->bssid, BROADCAST, 6) != 0)
+					&& lopt.unasso_station))
 			{
 				st_cur = st_cur->prev;
 				continue;
 			}
 
-			if (color > TEXT_MAX_COLOR) color++;
+			if (lopt.color > TEXT_MAX_COLOR) lopt.color++;
 
 			if (!ap_cur->marked)
 			{
@@ -366,10 +420,8 @@ static void color_on(void)
 				if (!memcmp(ap_cur->bssid, BROADCAST, 6))
 					ap_cur->marked_color = 1;
 				else
-					ap_cur->marked_color = color++;
+					ap_cur->marked_color = lopt.color++;
 			}
-			else
-				ap_cur->marked_color = 1;
 
 			st_cur = st_cur->prev;
 		}
@@ -401,16 +453,25 @@ static THREAD_ENTRY(input_thread)
 					"][ Are you sure you want to quit? Press Q again to quit.");
 		}
 
-		if (keycode == KEY_o)
+		if ((keycode == KEY_o) || (lopt.color_on == 1))
 		{
 			color_on();
-			snprintf(lopt.message, sizeof(lopt.message), "][ color on");
+
+			if (keycode == KEY_o)
+			{
+				// display message only once (when key 'o' is pressed)
+				snprintf(lopt.message, sizeof(lopt.message), "][ color on");
+				lopt.color_on = 1;
+			}
 		}
 
 		if (keycode == KEY_p)
 		{
 			color_off();
 			snprintf(lopt.message, sizeof(lopt.message), "][ color off");
+			lopt.color_on = 0;
+			// reset color (if color is enabled again it starts again from green)
+			lopt.color = TEXT_GREEN;
 		}
 
 		if (keycode == KEY_s)
@@ -522,7 +583,10 @@ static THREAD_ENTRY(input_thread)
 
 		if (keycode == KEY_m)
 		{
-			lopt.mark_cur_ap = 1;
+			if (lopt.p_selected_ap != NULL)
+			{
+				lopt.mark_cur_ap = 1;
+			}
 		}
 
 		if (keycode == KEY_ARROW_DOWN)
@@ -565,13 +629,11 @@ static THREAD_ENTRY(input_thread)
 				snprintf(lopt.message,
 						 sizeof(lopt.message),
 						 "][ enabled AP selection");
-				lopt.sort_by = SORT_BY_NOTHING;
 			}
 			else
 			{
 				lopt.en_selection_direction = selection_direction_no;
 				lopt.p_selected_ap = NULL;
-				lopt.sort_by = SORT_BY_NOTHING;
 				snprintf(lopt.message,
 						 sizeof(lopt.message),
 						 "][ disabled selection");
@@ -739,7 +801,7 @@ static struct oui * load_oui_file(void)
 static const char usage[] =
 
 	"\n"
-	"  %s - (C) 2006-2020 Thomas d\'Otreppe\n"
+	"  %s - (C) 2006-2022 Thomas d\'Otreppe\n"
 	"  https://www.aircrack-ng.org\n"
 	"\n"
 	"  usage: airodump-ng <options> <interface>[,<interface>,...]\n"
@@ -748,7 +810,6 @@ static const char usage[] =
 	"      --ivs                 : Save only captured IVs\n"
 	"      --gpsd                : Use GPSd\n"
 	"      --write      <prefix> : Dump file prefix\n"
-	"      -w                    : same as --write \n"
 	"      --beacons             : Record all beacons in dump file\n"
 	"      --update       <secs> : Display update delay in seconds\n"
 	"      --showack             : Prints ack/cts/rts statistics\n"
@@ -758,7 +819,7 @@ static const char usage[] =
 	"                              from the screen when no more packets\n"
 	"                              are received (Default: 120 seconds)\n"
 	"      -r             <file> : Read packets from that file\n"
-	"      -T                    : While reading packets from a file,\n"
+	"      --real-time           : While reading packets from a file,\n"
 	"                              simulate the arrival rate of them\n"
 	"                              as if they were \"live\".\n"
 	"      -x            <msecs> : Active Scanning Simulation\n"
@@ -774,19 +835,28 @@ static const char usage[] =
 	"      --write-interval\n"
 	"                  <seconds> : Output file(s) write interval in seconds\n"
 	"      --background <enable> : Override background detection.\n"
-	"      -n              <int> : Minimum AP packets recv'd before\n"
-	"                              for displaying it\n"
 	"\n"
 	"  Filter options:\n"
-	"      --encrypt   <suite>   : Filter APs by cipher suite\n"
+	"      --encrypt   <suite>   : Filter APs by cipher suite,\n"
+	"                              you can pass multiple --encrypt options\n"
 	"      --netmask <netmask>   : Filter APs by mask\n"
-	"      --bssid     <bssid>   : Filter APs by BSSID\n"
-	"      --essid     <essid>   : Filter APs by ESSID\n"
-#ifdef HAVE_PCRE
+	"      --bssid     <bssid>   : Filter APs by BSSID,\n"
+	"                              you can pass multiple --bssid options\n"
+	"      --essid     <essid>   : Filter APs by ESSID,\n"
+	"                              you can pass multiple --essid options\n"
+#if defined HAVE_PCRE2 || defined HAVE_PCRE
 	"      --essid-regex <regex> : Filter APs by ESSID using a regular\n"
 	"                              expression\n"
 #endif
-	"      -a                    : Filter unassociated clients\n"
+	"      --min-packets   <int> : Minimum AP packets recv'd before\n"
+	"                              displaying it (default: 2)\n"
+	"      --min-power     <int> : Filter out APs with PWR less than\n"
+	"                              the specified value (default: -120)\n"
+	"      --min-rxq       <int> : Filter out APs with RXQ less than\n"
+	"                              the specified value (default: 0)\n"
+	"                              Requires --channel (or -c) or -C\n"
+	"      -a                    : Filter out unassociated stations\n"
+	"      -z                    : Filter out associated stations\n"
 	"\n"
 	"  By default, airodump-ng hops on 2.4GHz channels.\n"
 	"  You can make it capture on other/specific channel(s) by using:\n"
@@ -794,13 +864,14 @@ static const char usage[] =
 	"      --ht40-               : Set channel to HT40- (802.11n)\n"
 	"      --ht40+               : Set channel to HT40+ (802.11n)\n"
 	"      --channel <channels>  : Capture on specific channels\n"
+	"      --ignore-other-chans  : Filter out other channels\n"
+	"                              Requires --channel (or -c)\n"
 	"      --band <abg>          : Band on which airodump-ng should hop\n"
 	"      -C    <frequencies>   : Uses these frequencies in MHz to hop\n"
 	"      --cswitch  <method>   : Set channel switching method\n"
 	"                    0       : FIFO (default)\n"
 	"                    1       : Round Robin\n"
 	"                    2       : Hop on last\n"
-	"      -s                    : same as --cswitch\n"
 	"\n"
 	"      --help                : Displays this usage screen\n"
 	"\n";
@@ -820,17 +891,25 @@ static int is_filtered_netmask(const uint8_t * bssid)
 	unsigned char mac1[6];
 	unsigned char mac2[6];
 	int i;
+	pMAC_t cur = lopt.rBSSID;
+	unsigned char match = 0;
 
-	for (i = 0; i < 6; i++)
+	while (cur->next != NULL)
 	{
-		mac1[i] = bssid[i] & opt.f_netmask[i];
-		mac2[i] = opt.f_bssid[i] & opt.f_netmask[i];
-	}
+		cur = cur->next;
+		for (i = 0; i < 6; i++)
+		{
+			mac1[i] = bssid[i] & opt.f_netmask[i];
+			mac2[i] = cur->mac[i] & opt.f_netmask[i];
+		}
 
-	if (memcmp(mac1, mac2, 6) != 0)
-	{
-		return (1);
+		if (memcmp(mac1, mac2, 6) == 0)
+		{
+			match = 1;
+			break;
+		}
 	}
+	if (match != 1) return (1);
 
 	return (0);
 }
@@ -855,18 +934,22 @@ int is_filtered_essid(const uint8_t * essid)
 		ret = 1;
 	}
 
-#ifdef HAVE_PCRE
+#if defined HAVE_PCRE2 || defined HAVE_PCRE
 	if (lopt.f_essid_regex)
 	{
-		return pcre_exec(lopt.f_essid_regex,
-						 NULL,
-						 (char *) essid,
-						 (int) strnlen((char *) essid, ESSID_LENGTH),
-						 0,
-						 0,
-						 NULL,
-						 0)
+#ifdef HAVE_PCRE2
+		lopt.f_essid_match_data
+			= pcre2_match_data_create_from_pattern(lopt.f_essid_regex, NULL);
+
+		return COMPAT_PCRE_MATCH(lopt.f_essid_regex,
+								 essid,
+								 ESSID_LENGTH,
+								 lopt.f_essid_match_data)
 			   < 0;
+#elif defined HAVE_PCRE
+		return COMPAT_PCRE_MATCH(lopt.f_essid_regex, essid, ESSID_LENGTH, NULL)
+			   < 0;
+#endif
 	}
 #endif
 
@@ -901,20 +984,23 @@ static void update_rx_quality(void)
 			if (ap_cur->fcapt > 1)
 			{
 				capt_time
-					= (1000000UL * (ap_cur->ftimel.tv_sec
-									- ap_cur->ftimef.tv_sec) // time between
+					= (1000000UL
+						   * (ap_cur->ftimel.tv_sec
+							  - ap_cur->ftimef.tv_sec) // time between
 					   // first and last
 					   // captured frame
 					   + (ap_cur->ftimel.tv_usec - ap_cur->ftimef.tv_usec));
 
 				miss_time
-					= (1000000UL * (ap_cur->ftimef.tv_sec
-									- ap_cur->ftimer.tv_sec) // time between
+					= (1000000UL
+						   * (ap_cur->ftimef.tv_sec
+							  - ap_cur->ftimer.tv_sec) // time between
 					   // timer reset and
 					   // first frame
 					   + (ap_cur->ftimef.tv_usec - ap_cur->ftimer.tv_usec))
-					  + (1000000UL * (cur_time.tv_sec
-									  - ap_cur->ftimel.tv_sec) // time between
+					  + (1000000UL
+							 * (cur_time.tv_sec
+								- ap_cur->ftimel.tv_sec) // time between
 						 // last frame and
 						 // this moment
 						 + (cur_time.tv_usec - ap_cur->ftimel.tv_usec));
@@ -1226,6 +1312,8 @@ static int dump_add_packet(unsigned char * h80211,
 	unsigned char clear[2048];
 	int weight[16];
 	int num_xor = 0;
+	pMAC_t cur = lopt.rBSSID;
+	unsigned char match = 0;
 
 	struct AP_info * ap_cur = NULL;
 	struct ST_info * st_cur = NULL;
@@ -1248,7 +1336,8 @@ static int dump_add_packet(unsigned char * h80211,
 
 	/* if it's a LLC null packet, just forget it (may change in the future) */
 
-	if (caplen > 28)
+	if (((h80211[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_DATA)
+		&& (caplen > 28))
 		if (memcmp(h80211 + 24, llcnull, 4) == 0) return (0);
 
 	/* grab the sequence number */
@@ -1272,7 +1361,7 @@ static int dump_add_packet(unsigned char * h80211,
 			abort();
 	}
 
-	if (memcmp(opt.f_bssid, NULL_MAC, 6) != 0)
+	if (getMACcount(lopt.rBSSID) > 0)
 	{
 		if (memcmp(opt.f_netmask, NULL_MAC, 6) != 0)
 		{
@@ -1280,7 +1369,16 @@ static int dump_add_packet(unsigned char * h80211,
 		}
 		else
 		{
-			if (memcmp(opt.f_bssid, bssid, 6) != 0) return (1);
+			while (cur->next != NULL)
+			{
+				cur = cur->next;
+				if (memcmp(cur->mac, bssid, 6) == 0)
+				{
+					match = 1;
+					break;
+				}
+			}
+			if (match != 1) return (1);
 		}
 	}
 
@@ -1879,7 +1977,7 @@ skip_probe:
 						break;
 				}
 
-				ap_cur->n_channel.any_chan_width = (uint8_t)((p[3] / 4) % 2);
+				ap_cur->n_channel.any_chan_width = (uint8_t) ((p[3] / 4) % 2);
 			}
 
 			// HT capabilities
@@ -1891,8 +1989,8 @@ skip_probe:
 				}
 
 				// Short GI for 20/40MHz
-				ap_cur->n_channel.short_gi_20 = (uint8_t)((p[3] / 32) % 2);
-				ap_cur->n_channel.short_gi_40 = (uint8_t)((p[3] / 64) % 2);
+				ap_cur->n_channel.short_gi_20 = (uint8_t) ((p[3] / 32) % 2);
+				ap_cur->n_channel.short_gi_40 = (uint8_t) ((p[3] / 64) % 2);
 
 				// Parse MCS rate
 				/*
@@ -1924,18 +2022,18 @@ skip_probe:
 				// Standard is AC
 				strcpy(ap_cur->standard, "ac");
 
-				ap_cur->ac_channel.split_chan = (uint8_t)((p[3] / 4) % 4);
+				ap_cur->ac_channel.split_chan = (uint8_t) ((p[3] / 4) % 4);
 
-				ap_cur->ac_channel.short_gi_80 = (uint8_t)((p[3] / 32) % 2);
-				ap_cur->ac_channel.short_gi_160 = (uint8_t)((p[3] / 64) % 2);
+				ap_cur->ac_channel.short_gi_80 = (uint8_t) ((p[3] / 32) % 2);
+				ap_cur->ac_channel.short_gi_160 = (uint8_t) ((p[3] / 64) % 2);
 
-				ap_cur->ac_channel.mu_mimo = (uint8_t)((p[4] & 0x18) % 2);
+				ap_cur->ac_channel.mu_mimo = (uint8_t) ((p[4] & 0x18) % 2);
 
 				// A few things indicate Wave 2: MU-MIMO, 80+80 Channels
 				ap_cur->ac_channel.wave_2
-					= (uint8_t)((ap_cur->ac_channel.mu_mimo
-								 || ap_cur->ac_channel.split_chan)
-								% 2);
+					= (uint8_t) ((ap_cur->ac_channel.mu_mimo
+								  || ap_cur->ac_channel.split_chan)
+								 % 2);
 
 				// Maximum rates (16 bit)
 				uint16_t tx_mcs = 0;
@@ -1945,7 +2043,7 @@ skip_probe:
 				for (uint8_t stream_idx = 0; stream_idx < MAX_AC_MCS_INDEX;
 					 ++stream_idx)
 				{
-					uint8_t mcs = (uint8_t)(tx_mcs % 4);
+					uint8_t mcs = (uint8_t) (tx_mcs % 4);
 
 					// Unsupported -> No more spatial stream
 					if (mcs == 3)
@@ -2059,12 +2157,12 @@ skip_probe:
 				float max_rate
 					= (ap_cur->standard[0] == 'n')
 						  ? get_80211n_rate(
-								width, sgi, ap_cur->n_channel.mcs_index)
+							  width, sgi, ap_cur->n_channel.mcs_index)
 						  : get_80211ac_rate(
-								width,
-								sgi,
-								ap_cur->ac_channel.mcs_index[amount_ss - 1],
-								amount_ss);
+							  width,
+							  sgi,
+							  ap_cur->ac_channel.mcs_index[amount_ss - 1],
+							  amount_ss);
 
 				// If no error, update rate
 				if (max_rate > 0)
@@ -2130,7 +2228,7 @@ skip_probe:
 				if (p + 9 + offset > h80211 + caplen) break;
 				numuni = p[8 + offset] + (p[9 + offset] << 8);
 
-				// Number of Authentication Key Managament suites
+				// Number of Authentication Key Management suites
 				if (p + (11 + offset) + 4 * numuni > h80211 + caplen) break;
 				numauth = p[(10 + offset) + 4 * numuni]
 						  + (p[(11 + offset) + 4 * numuni] << 8);
@@ -2527,10 +2625,10 @@ skip_probe:
 						ivs2.flags |= IVS2_XOR;
 						ivs2.len += clen + 4;
 						/* reveal keystream (plain^encrypted) */
-						for (n = 0; n < (size_t)(ivs2.len - 4); n++)
+						for (n = 0; n < (size_t) (ivs2.len - 4); n++)
 						{
-							clear[n] = (uint8_t)((clear[n] ^ h80211[z + 4 + n])
-												 & 0xFF);
+							clear[n] = (uint8_t) ((clear[n] ^ h80211[z + 4 + n])
+												  & 0xFF);
 						}
 						// clear is now the keystream
 					}
@@ -2548,11 +2646,12 @@ skip_probe:
 						/* reveal keystream (plain^encrypted) */
 						for (o = 0; o < num_xor; o++)
 						{
-							for (n = 0; n < (size_t)(ivs2.len - 4); n++)
+							for (n = 0; n < (size_t) (ivs2.len - 4); n++)
 							{
-								clear[2 + n + o * 32] = (uint8_t)(
-									(clear[2 + n + o * 32] ^ h80211[z + 4 + n])
-									& 0xFF);
+								clear[2 + n + o * 32]
+									= (uint8_t) ((clear[2 + n + o * 32]
+												  ^ h80211[z + 4 + n])
+												 & 0xFF);
 							}
 						}
 						memcpy(clear + 4 + 1 + 1 + 32 * num_xor,
@@ -2661,44 +2760,89 @@ skip_probe:
 			/* frame 1: Pairwise == 1, Install == 0, Ack == 1, MIC == 0 */
 
 			if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) == 0
-				&& (h80211[z + 6] & 0x80) != 0
-				&& (h80211[z + 5] & 0x01) == 0)
+				&& (h80211[z + 6] & 0x80) != 0 && (h80211[z + 5] & 0x01) == 0)
 			{
 				memcpy(st_cur->wpa.anonce, &h80211[z + 17], 32);
 
 				st_cur->wpa.state = 1;
 
-				if (h80211[z + 99] == 0xdd) // RSN
+				uint8_t key_descriptor_version = (uint8_t) (h80211[z + 6] & 7);
+
+				p = h80211 + z + 99;
+
+				while (p < h80211 + caplen)
 				{
-					if (h80211[z + 101] == 0x00 && h80211[z + 102] == 0x0f
-						&& h80211[z + 103] == 0xac) // OUI: IEEE8021
+					if (p + 2 + p[1] > h80211 + caplen) break;
+#ifdef XDEBUG
+					fprintf(stderr, "IE element: %d\n", p[0]);
+					fprintf(stderr, "IE length: %d\n", p[1]);
+#endif
+					if (p[0] == IEEE80211_ELEMID_VENDOR)
 					{
-						if (h80211[z + 104] == 0x04) // OUI SUBTYPE
+						size_t rsn_len = p[1];
+						size_t pos = 2;
+						const uint8_t rsn_oui[] = {RSN_OUI & 0xff,
+												   (RSN_OUI >> 8) & 0xff,
+												   (RSN_OUI >> 16) & 0xff};
+#ifdef XDEBUG
+						fprintf(stderr, "RSN length: %zd\n", rsn_len);
+						fprintf(stderr,
+								"OUI is %02x:%02x:%02x\n",
+								p[pos],
+								p[pos + 1],
+								p[pos + 2]);
+#endif
+						if (memcmp(rsn_oui, &p[pos], 3) == 0)
 						{
-							// Got a PMKID value?!
-							memcpy(st_cur->wpa.pmkid, &h80211[z + 105], 16);
+							if (pos + 3 > rsn_len) goto rsn_out;
+							pos += 3; // advance over RSN OUI
 
-							/* copy the key descriptor version */
-							st_cur->wpa.keyver = (uint8_t)(h80211[z + 6] & 7);
+#ifdef XDEBUG
+							fprintf(stderr,
+									"The cipher tag value '%d' is used with "
+									"the key descriptor version '%d'\n",
+									p[pos],
+									key_descriptor_version);
+#endif
+							if (pos + 1 > rsn_len) goto rsn_out;
+							pos += 1; // advance over tag value
 
-							memcpy(st_cur->wpa.stmac, st_cur->stmac, 6);
-							memcpy(lopt.wpa_bssid, ap_cur->bssid, 6);
-							memset(lopt.message, '\x00', sizeof(lopt.message));
-							snprintf(lopt.message,
-									 sizeof(lopt.message) - 1,
-									 "][ PMKID found: "
-									 "%02X:%02X:%02X:%02X:%02X:%02X ",
-									 lopt.wpa_bssid[0],
-									 lopt.wpa_bssid[1],
-									 lopt.wpa_bssid[2],
-									 lopt.wpa_bssid[3],
-									 lopt.wpa_bssid[4],
-									 lopt.wpa_bssid[5]);
+							if (key_descriptor_version > 0
+								&& memcmp(ZERO, &p[pos], 16) //-V512
+									   != 0)
+							{
+#ifdef XDEBUG
+								fprintf(stderr, "FOUND valid CCM PMKID\n");
+#endif
+								// Got a PMKID value?!
+								memcpy(st_cur->wpa.pmkid, &p[pos], 16);
 
-							goto write_packet;
+								/* copy the key descriptor version */
+								st_cur->wpa.keyver = key_descriptor_version;
+
+								memcpy(st_cur->wpa.stmac, st_cur->stmac, 6);
+								memcpy(lopt.wpa_bssid, ap_cur->bssid, 6);
+								memset(
+									lopt.message, '\x00', sizeof(lopt.message));
+								snprintf(lopt.message,
+										 sizeof(lopt.message) - 1,
+										 "][ PMKID found: "
+										 "%02X:%02X:%02X:%02X:%02X:%02X ",
+										 lopt.wpa_bssid[0],
+										 lopt.wpa_bssid[1],
+										 lopt.wpa_bssid[2],
+										 lopt.wpa_bssid[3],
+										 lopt.wpa_bssid[4],
+										 lopt.wpa_bssid[5]);
+
+								goto write_packet;
+							}
 						}
 					}
+
+					p += 2 + p[1];
 				}
+			rsn_out:;
 			}
 
 			/* frame 2 or 4: Pairwise == 1, Install == 0, Ack == 0, MIC == 1 */
@@ -2706,8 +2850,7 @@ skip_probe:
 			if (z + 17 + 32 > (unsigned) caplen) goto write_packet;
 
 			if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) == 0
-				&& (h80211[z + 6] & 0x80) == 0
-				&& (h80211[z + 5] & 0x01) != 0)
+				&& (h80211[z + 6] & 0x80) == 0 && (h80211[z + 5] & 0x01) != 0)
 			{
 				if (memcmp(&h80211[z + 17], ZERO, 32) != 0)
 				{
@@ -2718,7 +2861,7 @@ skip_probe:
 				if ((st_cur->wpa.state & 4) != 4)
 				{
 					st_cur->wpa.eapol_size
-						= (uint32_t)((h80211[z + 2] << 8) + h80211[z + 3] + 4);
+						= (uint32_t) ((h80211[z + 2] << 8) + h80211[z + 3] + 4);
 
 					if (caplen - z < st_cur->wpa.eapol_size
 						|| st_cur->wpa.eapol_size == 0 //-V560
@@ -2735,15 +2878,14 @@ skip_probe:
 						st_cur->wpa.eapol, &h80211[z], st_cur->wpa.eapol_size);
 					memset(st_cur->wpa.eapol + 81, 0, 16);
 					st_cur->wpa.state |= 4;
-					st_cur->wpa.keyver = (uint8_t)(h80211[z + 6] & 7);
+					st_cur->wpa.keyver = (uint8_t) (h80211[z + 6] & 7);
 				}
 			}
 
 			/* frame 3: Pairwise == 1, Install == 1, Ack == 1, MIC == 1 */
 
 			if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) != 0
-				&& (h80211[z + 6] & 0x80) != 0
-				&& (h80211[z + 5] & 0x01) != 0)
+				&& (h80211[z + 6] & 0x80) != 0 && (h80211[z + 5] & 0x01) != 0)
 			{
 				if (memcmp(&h80211[z + 17], ZERO, 32) != 0)
 				{
@@ -2770,7 +2912,7 @@ skip_probe:
 						st_cur->wpa.eapol, &h80211[z], st_cur->wpa.eapol_size);
 					memset(st_cur->wpa.eapol + 81, 0, 16);
 					st_cur->wpa.state |= 4;
-					st_cur->wpa.keyver = (uint8_t)(h80211[z + 6] & 7);
+					st_cur->wpa.keyver = (uint8_t) (h80211[z + 6] & 7);
 				}
 			}
 
@@ -3352,7 +3494,7 @@ static char * parse_timestamp(unsigned long long timestamp)
 	memset(s, 0, TSTP_LEN);
 
 	// Calculate days, hours, mins and secs
-	days = (uint8_t)(timestamp / TSTP_DAY);
+	days = (uint8_t) (timestamp / TSTP_DAY);
 	rem = timestamp % TSTP_DAY;
 	hours = (unsigned char) (rem / TSTP_HOUR);
 	rem %= TSTP_HOUR;
@@ -3369,10 +3511,23 @@ static char * parse_timestamp(unsigned long long timestamp)
 static int IsAp2BeSkipped(struct AP_info * ap_cur)
 {
 	REQUIRE(ap_cur != NULL);
+	int i = 0;
+	int match = 0;
 
 	if (ap_cur->nb_pkt < lopt.min_pkts
 		|| time(NULL) - ap_cur->tlast > lopt.berlin
 		|| memcmp(ap_cur->bssid, BROADCAST, 6) == 0)
+	{
+		return (1);
+	}
+
+	if (ap_cur->avg_power < (int) lopt.min_power)
+	{
+		return (1);
+	}
+
+	if ((lopt.singlechan || lopt.singlefreq)
+		&& (ap_cur->rx_quality < (int) lopt.min_rxq))
 	{
 		return (1);
 	}
@@ -3386,6 +3541,20 @@ static int IsAp2BeSkipped(struct AP_info * ap_cur)
 	if (is_filtered_essid(ap_cur->essid))
 	{
 		return (1);
+	}
+
+	if (lopt.chanoption && lopt.ignore_other_channels)
+	{
+		while (lopt.own_channels[i])
+		{
+			if (ap_cur->channel == lopt.own_channels[i])
+			{
+				match = 1;
+				break;
+			}
+			i++;
+		}
+		if (match != 1) return (1);
 	}
 
 	return (0);
@@ -3413,14 +3582,15 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 	struct AP_info * ap_cur;
 	struct ST_info * st_cur;
 	struct NA_info * na_cur;
-	int columns_ap = 83;
+	int columns_ap = 84;
 	int columns_sta = 74;
 	ssize_t len;
 
 	int num_ap;
 	int num_sta;
 
-	if (!lopt.singlechan) columns_ap -= 4; // no RXQ in scan mode
+	if (!(lopt.singlechan || lopt.singlefreq))
+		columns_ap -= 4; // no RXQ in scan mode
 	if (lopt.show_uptime) columns_ap += 15; // show uptime needs more space
 
 	nlines = 2;
@@ -3561,7 +3731,7 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 	strlcat(strbuf, buffer, sizeof(strbuf));
 	memset(buffer, '\0', sizeof(buffer));
 
-	if (strlen(lopt.message) > 0)
+	if (*lopt.message != '\0')
 	{
 		strlcat(strbuf, lopt.message, sizeof(strbuf));
 	}
@@ -3583,7 +3753,8 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 		strbuf[0] = 0;
 		strlcat(strbuf, " BSSID              PWR ", sizeof(strbuf));
 
-		if (lopt.singlechan) strlcat(strbuf, "RXQ ", sizeof(strbuf));
+		if (lopt.singlechan || lopt.singlefreq)
+			strlcat(strbuf, "RXQ ", sizeof(strbuf));
 
 		strlcat(strbuf,
 				" Beacons    #Data, #/s  CH   MB   ENC CIPHER  AUTH ",
@@ -3597,23 +3768,21 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 			strlcat(strbuf, "WPS   ", sizeof(strbuf));
 			if (ws_col > (columns_ap - 4))
 			{
-				memset(strbuf + strlen(strbuf),
-					   32,
-					   sizeof(strbuf) - strlen(strbuf) - 1);
-				snprintf(strbuf + columns_ap + lopt.maxsize_wps_seen - 5,
-						 8,
+				memset(strbuf + columns_ap, ' ', sizeof(strbuf) - columns_ap);
+				snprintf(strbuf + columns_ap - strlen("ESSID")
+							 + lopt.maxsize_wps_seen + strlen(" "),
+						 6,
 						 "%s",
-						 "  ESSID");
+						 "ESSID");
 				if (lopt.show_manufacturer)
 				{
 					memset(strbuf + columns_ap + lopt.maxsize_wps_seen + 1,
-						   32,
+						   ' ',
 						   sizeof(strbuf) - columns_ap - lopt.maxsize_wps_seen
 							   - 1);
 					snprintf(strbuf + columns_ap + lopt.maxsize_wps_seen
-								 + lopt.maxsize_essid_seen
-								 - 4,
-							 15,
+								 + lopt.maxsize_essid_seen - strlen("ESSID"),
+							 13,
 							 "%s",
 							 "MANUFACTURER");
 				}
@@ -3625,12 +3794,12 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 
 			if (lopt.show_manufacturer && (ws_col > (columns_ap - 4)))
 			{
-				// write spaces (32).
-				memset(strbuf + columns_ap, 32, lopt.maxsize_essid_seen - 5);
-				snprintf(strbuf + columns_ap + lopt.maxsize_essid_seen - 7,
-						 15,
+				memset(strbuf + columns_ap, ' ', sizeof(strbuf) - columns_ap);
+				snprintf(strbuf + columns_ap - strlen("ESSID")
+							 + lopt.maxsize_essid_seen,
+						 13,
 						 "%s",
-						 "  MANUFACTURER");
+						 "MANUFACTURER");
 			}
 		}
 		strbuf[ws_col - 1] = '\0';
@@ -3728,7 +3897,7 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 
 			len = strlen(strbuf);
 
-			if (lopt.singlechan)
+			if (lopt.singlechan || lopt.singlefreq)
 			{
 				snprintf(strbuf + len,
 						 sizeof(strbuf) - len,
@@ -3881,7 +4050,7 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 				textcolor_fg(ap_cur->marked_color);
 			}
 
-			memset(strbuf + len, 32, sizeof(strbuf) - len - 1);
+			memset(strbuf + len, ' ', sizeof(strbuf) - len - 1);
 
 			if (ws_col > (columns_ap - 4))
 			{
@@ -3945,7 +4114,7 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 					else
 					{
 						// pad output
-						memset(strbuf + len, 32, sizeof(strbuf) - len - 1);
+						memset(strbuf + len, ' ', sizeof(strbuf) - len - 1);
 						len += lopt.maxsize_wps_seen - (len - wps_len);
 						strbuf[len] = '\0';
 					}
@@ -3985,13 +4154,13 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 
 				if (lopt.show_manufacturer)
 				{
-					if (lopt.maxsize_essid_seen <= (u_int)(len - essid_len))
+					if (lopt.maxsize_essid_seen <= (u_int) (len - essid_len))
 						lopt.maxsize_essid_seen
 							= (u_int) MAX(len - essid_len, 5);
 					else
 					{
 						// pad output
-						memset(strbuf + len, 32, sizeof(strbuf) - len - 1);
+						memset(strbuf + len, ' ', sizeof(strbuf) - len - 1);
 						len += lopt.maxsize_essid_seen - (len - essid_len);
 						strbuf[len] = '\0';
 					}
@@ -4010,12 +4179,12 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 
 			len = strlen(strbuf);
 
-			// write spaces (32) until the end of column
+			// write spaces until the end of column
 			int len_remaining = ws_col - len;
 			if (len_remaining > 0)
 			{
 				ALLEGE((size_t) len + len_remaining <= sizeof(strbuf));
-				memset(strbuf + len, 32, len_remaining);
+				memset(strbuf + len, ' ', len_remaining);
 			}
 
 			strbuf[ws_col - 1] = '\0';
@@ -4037,11 +4206,11 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 		CHECK_END_OF_SCREEN();
 	}
 
-	if (lopt.show_sta)
+	if (lopt.show_sta && !(lopt.asso_station && lopt.unasso_station))
 	{
 		strlcpy(strbuf,
 				" BSSID              STATION "
-				"           PWR   Rate    Lost    Frames  Notes  Probes",
+				"           PWR    Rate    Lost   Frames  Notes  Probes",
 				sizeof(strbuf));
 		strbuf[ws_col - 1] = '\0';
 		console_puts(strbuf);
@@ -4070,7 +4239,7 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 				continue;
 			}
 
-			// Don't filter unassociated clients by ESSID
+			// Don't filter unassociated stations by ESSID
 			if (memcmp(ap_cur->bssid, BROADCAST, 6) != 0
 				&& is_filtered_essid(ap_cur->essid))
 			{
@@ -4102,7 +4271,10 @@ static void dump_print(int ws_row, int ws_col, int if_num)
 					continue;
 				}
 
-				if (!memcmp(ap_cur->bssid, BROADCAST, 6) && lopt.asso_client)
+				if (((memcmp(ap_cur->bssid, BROADCAST, 6) == 0)
+					 && lopt.asso_station)
+					|| ((memcmp(ap_cur->bssid, BROADCAST, 6) != 0)
+						&& lopt.unasso_station))
 				{
 					st_cur = st_cur->prev;
 					continue;
@@ -4270,6 +4442,7 @@ get_manufacturer(unsigned char mac0, unsigned char mac1, unsigned char mac2)
 	unsigned char b[2];
 	unsigned char c[2];
 	int found = 0;
+	size_t oui_len;
 
 	if ((manuf = (char *) calloc(1, MANUF_SIZE * sizeof(char))) == NULL)
 	{
@@ -4278,6 +4451,7 @@ get_manufacturer(unsigned char mac0, unsigned char mac1, unsigned char mac2)
 	}
 
 	snprintf(oui, sizeof(oui), "%02X:%02X:%02X", mac0, mac1, mac2);
+	oui_len = strlen(oui);
 
 	if (lopt.manufList != NULL)
 	{
@@ -4330,7 +4504,7 @@ get_manufacturer(unsigned char mac0, unsigned char mac1, unsigned char mac2)
 							 b[1],
 							 c[0],
 							 c[1]);
-					found = !memcmp(temp, oui, strlen(oui));
+					found = !memcmp(temp, oui, oui_len);
 					if (found)
 					{
 						manuf_str = get_manufacturer_from_string(buffer);
@@ -4421,8 +4595,7 @@ json_get_value_for_name(const char * buffer, const char * name, char * value)
 	char * vcursor = value;
 	int ret = 0;
 
-	if (buffer == NULL || strlen(buffer) == 0 || name == NULL
-		|| strlen(name) == 0
+	if (buffer == NULL || *buffer == '\0' || name == NULL || *name == '\0'
 		|| value == NULL)
 	{
 		return (0);
@@ -4535,7 +4708,7 @@ static THREAD_ENTRY(gps_tracker_thread)
 	*return_success = 0;
 	*return_error = -1;
 
-	// Incase we GPSd goes down or we lose connection or a fix, we keep trying to connect inside the while loop
+	// In case we GPSd goes down or we lose connection or a fix, we keep trying to connect inside the while loop
 	while (lopt.do_exit == 0)
 	{
 		// If our socket connection to GPSD has been attempted and failed wait before trying again - used to prevent locking the CPU on socket retries
@@ -4546,9 +4719,9 @@ static THREAD_ENTRY(gps_tracker_thread)
 		gpsd_tried_connection = 1;
 
 		time_t updateTime = time(NULL);
-		memset(line, 0, 1537);
-		memset(buffer, 0, 1537);
-		memset(data, 0, 1537);
+		memset(line, 0, sizeof(line));
+		memset(buffer, 0, sizeof(buffer));
+		memset(data, 0, sizeof(data));
 
 		/* attempt to connect to localhost, port 2947 */
 		pos = 0;
@@ -4778,7 +4951,7 @@ static THREAD_ENTRY(gps_tracker_thread)
 
 				memset(line, 0, sizeof(line));
 
-				snprintf(line, sizeof(line) - 1, "PVTAD\r\n");
+				strcat(line, "PVTAD\r\n");
 				if (send(gpsd_sock, line, 7, 0) != 7)
 				{
 					free(return_success);
@@ -5096,7 +5269,7 @@ channel_hopper(struct wif * wi[], int if_num, int chan_count, pid_t parent)
 			first = 0;
 		}
 
-		usleep((useconds_t)(lopt.hopfreq * 1000));
+		usleep((useconds_t) (lopt.hopfreq * 1000));
 	}
 
 	exit(0);
@@ -5194,7 +5367,7 @@ frequency_hopper(struct wif * wi[], int if_num, int chan_count, pid_t parent)
 			first = 0;
 		}
 
-		usleep((useconds_t)(lopt.hopfreq * 1000));
+		usleep((useconds_t) (lopt.hopfreq * 1000));
 	}
 
 	exit(0);
@@ -5226,11 +5399,12 @@ static inline int invalid_frequency(int freq)
 
 static int getchannels(const char * optarg)
 {
-	unsigned int i = 0, chan_cur = 0, chan_first = 0, chan_last = 0,
-				 chan_max = 128, chan_remain = 0;
+#define GETCHANNELS_CHAN_MAX 128u
+	size_t i = 0, chan_cur = 0, chan_first = 0, chan_last = 0,
+		   chan_max = GETCHANNELS_CHAN_MAX, chan_remain = 0;
 	char *optchan = NULL, *optc;
 	char * token = NULL;
-	int * tmp_channels;
+	int tmp_channels[GETCHANNELS_CHAN_MAX + 1] = {0};
 
 	// got a NULL pointer?
 	if (optarg == NULL) return (-1);
@@ -5244,12 +5418,11 @@ static int getchannels(const char * optarg)
 	ALLEGE(optchan != NULL);
 	strlcpy(optchan, optarg, optchan_len);
 
-	tmp_channels = (int *) malloc(sizeof(int) * (chan_max + 1));
-	ALLEGE(tmp_channels != NULL);
-
 	// split string in tokens, separated by ','
 	while ((token = strsep(&optchan, ",")) != NULL)
 	{
+		const size_t token_len = strlen(token);
+
 		// range defined?
 		if (strchr(token, '-') != NULL)
 		{
@@ -5257,22 +5430,20 @@ static int getchannels(const char * optarg)
 			if (strchr(token, '-') == strrchr(token, '-'))
 			{
 				// are there any illegal characters?
-				for (i = 0; i < strlen(token); i++)
+				for (i = 0; i < token_len; i++)
 				{
 					if (((token[i] < '0') || (token[i] > '9'))
 						&& (token[i] != '-'))
 					{
-						free(tmp_channels);
 						free(optc);
 						return (-1);
 					}
 				}
 
-				if (sscanf(token, "%u-%u", &chan_first, &chan_last) != EOF)
+				if (sscanf(token, "%zu-%zu", &chan_first, &chan_last) != EOF)
 				{
 					if (chan_first > chan_last)
 					{
-						free(tmp_channels);
 						free(optc);
 						return (-1);
 					}
@@ -5287,14 +5458,12 @@ static int getchannels(const char * optarg)
 				}
 				else
 				{
-					free(tmp_channels);
 					free(optc);
 					return (-1);
 				}
 			}
 			else
 			{
-				free(tmp_channels);
 				free(optc);
 				return (-1);
 			}
@@ -5302,17 +5471,16 @@ static int getchannels(const char * optarg)
 		else
 		{
 			// are there any illegal characters?
-			for (i = 0; i < strlen(token); i++)
+			for (i = 0; i < token_len; i++)
 			{
 				if ((token[i] < '0') || (token[i] > '9'))
 				{
-					free(tmp_channels);
 					free(optc);
 					return (-1);
 				}
 			}
 
-			if (sscanf(token, "%u", &chan_cur) != EOF)
+			if (sscanf(token, "%zu", &chan_cur) != EOF)
 			{
 				if ((!invalid_channel(chan_cur)) && (chan_remain > 0))
 				{
@@ -5322,7 +5490,6 @@ static int getchannels(const char * optarg)
 			}
 			else
 			{
-				free(tmp_channels);
 				free(optc);
 				return (-1);
 			}
@@ -5343,7 +5510,6 @@ static int getchannels(const char * optarg)
 
 	lopt.own_channels[i] = 0;
 
-	free(tmp_channels);
 	free(optc);
 	if (i == 1) return (lopt.own_channels[0]);
 	if (i == 0) return (-1);
@@ -5354,8 +5520,8 @@ static int getchannels(const char * optarg)
 
 static int getfrequencies(const char * optarg)
 {
-	unsigned int i = 0, freq_cur = 0, freq_first = 0, freq_last = 0,
-				 freq_max = 10000, freq_remain = 0;
+	size_t i = 0, freq_cur = 0, freq_first = 0, freq_last = 0, freq_max = 10000,
+		   freq_remain = 0;
 	char *optfreq = NULL, *optc;
 	char * token = NULL;
 	int * tmp_frequencies;
@@ -5378,6 +5544,8 @@ static int getfrequencies(const char * optarg)
 	// split string in tokens, separated by ','
 	while ((token = strsep(&optfreq, ",")) != NULL)
 	{
+		const size_t token_len = strlen(token);
+
 		// range defined?
 		if (strchr(token, '-') != NULL)
 		{
@@ -5385,7 +5553,7 @@ static int getfrequencies(const char * optarg)
 			if (strchr(token, '-') == strrchr(token, '-'))
 			{
 				// are there any illegal characters?
-				for (i = 0; i < strlen(token); i++)
+				for (i = 0; i < token_len; i++)
 				{
 					if ((token[i] < '0' || token[i] > '9') && (token[i] != '-'))
 					{
@@ -5395,7 +5563,7 @@ static int getfrequencies(const char * optarg)
 					}
 				}
 
-				if (sscanf(token, "%u-%u", &freq_first, &freq_last) != EOF)
+				if (sscanf(token, "%zu-%zu", &freq_first, &freq_last) != EOF)
 				{
 					if (freq_first > freq_last)
 					{
@@ -5429,7 +5597,7 @@ static int getfrequencies(const char * optarg)
 		else
 		{
 			// are there any illegal characters?
-			for (i = 0; i < strlen(token); i++)
+			for (i = 0; i < token_len; i++)
 			{
 				if ((token[i] < '0') || (token[i] > '9'))
 				{
@@ -5439,7 +5607,7 @@ static int getfrequencies(const char * optarg)
 				}
 			}
 
-			if (sscanf(token, "%u", &freq_cur) != EOF)
+			if (sscanf(token, "%zu", &freq_cur) != EOF)
 			{
 				if ((!invalid_frequency(freq_cur)) && (freq_remain > 0))
 				{
@@ -5689,9 +5857,9 @@ static int detect_frequencies(struct wif * wi)
 		}
 	}
 
-	// again for 5GHz channels
+	// again for 5GHz & 6GHz channels
 	start_freq = 4800;
-	end_freq = 6000;
+	end_freq = 7115;
 	for (freq = start_freq; freq <= end_freq; freq += 5)
 	{
 		if (wi_set_freq(wi, freq) == 0)
@@ -5780,7 +5948,12 @@ int main(int argc, char * argv[])
 	int wi_read_failed = 0;
 	int n = 0;
 	int output_format_first_time = 1;
-#ifdef HAVE_PCRE
+	unsigned char mac[6];
+#ifdef HAVE_PCRE2
+	int pcreerror;
+	PCRE2_UCHAR pcreerrorbuf[256];
+	PCRE2_SIZE pcreerroffset;
+#elif defined HAVE_PCRE
 	const char * pcreerror;
 	int pcreerroffset;
 #endif
@@ -5827,6 +6000,7 @@ int main(int argc, char * argv[])
 		   {"essid", 1, 0, 'N'},
 		   {"essid-regex", 1, 0, 'R'},
 		   {"channel", 1, 0, 'c'},
+		   {"ignore-other-chans", 0, 0, 'O'},
 		   {"gpsd", 0, 0, 'g'},
 		   {"ivs", 0, 0, 'i'},
 		   {"write", 1, 0, 'w'},
@@ -5845,6 +6019,8 @@ int main(int argc, char * argv[])
 		   {"wps", 0, 0, 'W'},
 		   {"background", 1, 0, 'K'},
 		   {"min-packets", 1, 0, 'n'},
+		   {"min-power", 1, 0, 'p'},
+		   {"min-rxq", 1, 0, 'q'},
 		   {"real-time", 0, 0, 'T'},
 		   {0, 0, 0, 0}};
 
@@ -5867,6 +6043,7 @@ int main(int argc, char * argv[])
 	h80211 = NULL;
 	ivs_only = 0;
 	lopt.chanoption = 0;
+	lopt.ignore_other_channels = 0;
 	lopt.freqoption = 0;
 	lopt.num_cards = 0;
 	fdh = 0;
@@ -5894,7 +6071,8 @@ int main(int argc, char * argv[])
 	opt.sk_start = 0;
 	opt.prefix = NULL;
 	lopt.f_encrypt = 0;
-	lopt.asso_client = 0;
+	lopt.asso_station = 0;
+	lopt.unasso_station = 0;
 	lopt.f_essid = NULL;
 	lopt.f_essid_count = 0;
 	lopt.active_scan_sim = 0;
@@ -5932,11 +6110,15 @@ int main(int argc, char * argv[])
 	lopt.background_mode = -1;
 	lopt.do_exit = 0;
 	lopt.min_pkts = 2;
+	lopt.min_power = -120;
+	lopt.min_rxq = -1;
 	lopt.relative_time = 0;
+	lopt.color_on = 0;
+	lopt.color = TEXT_GREEN;
 #ifdef CONFIG_LIBNL
 	lopt.htval = CHANNEL_NO_HT;
 #endif
-#ifdef HAVE_PCRE
+#if defined HAVE_PCRE2 || defined HAVE_PCRE
 	lopt.f_essid_regex = NULL;
 #endif
 
@@ -5969,7 +6151,9 @@ int main(int argc, char * argv[])
 		lopt.channel[i] = 0;
 	}
 
-	memset(opt.f_bssid, '\x00', 6);
+	lopt.rBSSID = (pMAC_t) malloc(sizeof(struct MAC_list));
+	ALLEGE(lopt.rBSSID != NULL);
+	memset(lopt.rBSSID, 0, sizeof(struct MAC_list));
 	memset(opt.f_netmask, '\x00', 6);
 	memset(lopt.wpa_bssid, '\x00', 6);
 
@@ -6028,12 +6212,12 @@ int main(int argc, char * argv[])
 	{
 		option_index = 0;
 
-		option
-			= getopt_long(argc,
-						  argv,
-						  "b:c:egiw:s:t:u:m:d:N:R:aHDB:Ahf:r:EC:o:x:MUI:WK:n:T",
-						  long_options,
-						  &option_index);
+		option = getopt_long(
+			argc,
+			argv,
+			"b:c:Oegiw:s:t:u:m:d:N:R:azHDB:Ahf:r:EC:o:x:MUI:WK:n:p:q:T",
+			long_options,
+			&option_index);
 
 		if (option < 0) break;
 
@@ -6096,7 +6280,12 @@ int main(int argc, char * argv[])
 
 			case 'a':
 
-				lopt.asso_client = 1;
+				lopt.asso_station = 1;
+				break;
+
+			case 'z':
+
+				lopt.unasso_station = 1;
 				break;
 
 			case 'A':
@@ -6158,6 +6347,10 @@ int main(int argc, char * argv[])
 				lopt.channels = (int *) bg_chans;
 				break;
 
+			case 'O':
+				lopt.ignore_other_channels = 1;
+				break;
+
 			case 'C':
 
 				if (lopt.channel[0] > 0 || lopt.chanoption == 1)
@@ -6191,7 +6384,7 @@ int main(int argc, char * argv[])
 				}
 				freq[0] = freq[1] = 0;
 
-				for (i = 0; i < (int) strlen(optarg); i++)
+				for (i = 0; i < (int) strlen(optarg); i++) //-V814
 				{
 					if (optarg[i] == 'a')
 						freq[1] = 1;
@@ -6331,12 +6524,11 @@ int main(int argc, char * argv[])
 
 			case 'd':
 
-				if (memcmp(opt.f_bssid, NULL_MAC, 6) != 0)
+				if (getmac(optarg, 1, mac) == 0)
 				{
-					printf("Notice: bssid already given\n");
-					break;
+					addMAC(lopt.rBSSID, mac);
 				}
-				if (getmac(optarg, 1, opt.f_bssid) != 0)
+				else
 				{
 					printf("Notice: invalid bssid\n");
 					printf("\"%s --help\" for help.\n", argv[0]);
@@ -6357,7 +6549,7 @@ int main(int argc, char * argv[])
 
 			case 'R':
 
-#ifdef HAVE_PCRE
+#if defined HAVE_PCRE2 || defined HAVE_PCRE
 				if (lopt.f_essid_regex != NULL)
 				{
 					printf("Error: ESSID regular expression already given. "
@@ -6366,14 +6558,17 @@ int main(int argc, char * argv[])
 				}
 
 				lopt.f_essid_regex
-					= pcre_compile(optarg, 0, &pcreerror, &pcreerroffset, NULL);
+					= COMPAT_PCRE_COMPILE(optarg, &pcreerror, &pcreerroffset);
 
 				if (lopt.f_essid_regex == NULL)
 				{
-					printf("Error: regular expression compilation failed at "
-						   "offset %d: %s; aborting\n",
-						   pcreerroffset,
-						   pcreerror);
+#ifdef HAVE_PCRE2
+					pcre2_get_error_message(
+						pcreerror, pcreerrorbuf, sizeof(pcreerrorbuf));
+					COMPAT_PCRE_PRINT_ERROR(pcreerroffset, pcreerrorbuf);
+#elif defined HAVE_PCRE
+					COMPAT_PCRE_PRINT_ERROR(pcreerroffset, pcreerror);
+#endif
 					exit(EXIT_FAILURE);
 				}
 #else
@@ -6391,6 +6586,28 @@ int main(int argc, char * argv[])
 			case 'n':
 
 				lopt.min_pkts = strtoul(optarg, NULL, 10);
+				break;
+
+			case 'p':
+
+				if (sscanf(optarg, "%" SCNd16, &lopt.min_power) != 1)
+				{
+					printf("Error: invalid --min-power (or -p) value\n");
+					printf("\"%s --help\" for help.\n", argv[0]);
+					return (EXIT_FAILURE);
+				}
+				break;
+
+			case 'q':
+
+				if ((sscanf(optarg, "%" SCNd8, &lopt.min_rxq) != 1)
+					|| (lopt.min_rxq > 100) || (lopt.min_rxq < 0))
+				{
+					printf("Error: invalid --min-rxq (or -q) value (valid "
+						   "range: 0..100)\n");
+					printf("\"%s --help\" for help.\n", argv[0]);
+					return (EXIT_FAILURE);
+				}
 				break;
 
 			case 'o':
@@ -6412,7 +6629,7 @@ int main(int argc, char * argv[])
 				output_format_string = strtok(optarg, ",");
 				while (output_format_string != NULL)
 				{
-					if (strlen(output_format_string) != 0)
+					if (*output_format_string != '\0')
 					{
 						if (strncasecmp(output_format_string, "csv", 3) == 0
 							|| strncasecmp(output_format_string, "txt", 3) == 0)
@@ -6521,7 +6738,7 @@ int main(int argc, char * argv[])
 
 			case 'H':
 				airodump_usage();
-				return (EXIT_FAILURE);
+				return (EXIT_SUCCESS);
 
 			case 'x':
 
@@ -6581,9 +6798,23 @@ int main(int argc, char * argv[])
 	if (argc - optind == 1) lopt.s_iface = argv[argc - 1];
 
 	if ((memcmp(opt.f_netmask, NULL_MAC, 6) != 0)
-		&& (memcmp(opt.f_bssid, NULL_MAC, 6) == 0))
+		&& (getMACcount(lopt.rBSSID) == 0))
 	{
 		printf("Notice: specify bssid \"--bssid\" with \"--netmask\"\n");
+		printf("\"%s --help\" for help.\n", argv[0]);
+		return (EXIT_FAILURE);
+	}
+
+	if (lopt.ignore_other_channels && !lopt.chanoption)
+	{
+		printf("Error: --ignore-other-chans requires --channel (or -c)\n");
+		printf("\"%s --help\" for help.\n", argv[0]);
+		return (EXIT_FAILURE);
+	}
+
+	if ((lopt.min_rxq != -1) && !(lopt.chanoption || lopt.freqoption))
+	{
+		printf("Error: --min-rxq (or -q) requires --channel (or -c) or -C\n");
 		printf("\"%s --help\" for help.\n", argv[0]);
 		return (EXIT_FAILURE);
 	}
@@ -7295,7 +7526,13 @@ int main(int argc, char * argv[])
 
 	if (lopt.keyout) free(lopt.keyout);
 
-#ifdef HAVE_PCRE
+#ifdef HAVE_PCRE2
+	if (lopt.f_essid_regex)
+	{
+		pcre2_match_data_free(lopt.f_essid_match_data);
+		pcre2_code_free(lopt.f_essid_regex);
+	}
+#elif defined HAVE_PCRE
 	if (lopt.f_essid_regex) pcre_free(lopt.f_essid_regex);
 #endif
 
@@ -7400,6 +7637,9 @@ int main(int argc, char * argv[])
 			oui_cur = oui_next;
 		}
 	}
+
+	flushMACs(lopt.rBSSID);
+	free(lopt.rBSSID);
 
 	reset_term();
 	show_cursor();

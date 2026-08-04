@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Joseph Benden <joe@benden.us>
+ * Copyright (C) 2018-2022 Joseph Benden <joe@benden.us>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -62,6 +62,8 @@ extern "C" {
 
 #define ESSID_LENGTH 32 /* The spec. says 32 maximum. */
 #define PLAINTEXT_LENGTH 63 /* We can do 64 but spec. says 63 */
+#define PMK_LEN 32
+#define PMK_LEN_MAX 64
 
 #define MIN_KEYS_PER_CRYPT 1
 #if defined(JOHN_AVX512F)
@@ -147,7 +149,7 @@ struct ac_crypto_engine_perthread
 #undef CRYPT_PADDING
 
 	/// Holds a 20-byte buffer for a SHA1 digest. Double cache-line size is to
-	/// space the next field futher out.
+	/// space the next field further out.
 	CACHELINE_PADDED_FIELD(uint8_t,
 						   ptk,
 						   20 * MAX_KEYS_PER_CRYPT_SUPPORTED,
@@ -268,7 +270,7 @@ IMPORT int ac_crypto_engine_wpa_pmkid_crack(
 IMPORT void ac_crypto_engine_calc_one_pmk(const uint8_t * key,
 										  const uint8_t * essid,
 										  uint32_t essid_length,
-										  uint8_t pmk[40]);
+										  uint8_t pmk[static PMK_LEN]);
 
 #ifdef __cplusplus
 }

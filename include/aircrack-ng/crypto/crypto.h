@@ -2,6 +2,7 @@
  *  MD5, SHA-1, RC4 and AES implementations
  *
  *  Copyright (C) 2001-2004  Christophe Devine
+ *  Copyright (C) 2017-2022  Joseph Benden <joe@benden.us>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -39,20 +40,42 @@
 #include <errno.h>
 
 #ifdef USE_GCRYPT
-#include <aircrack-ng/crypto/gcrypt-openssl-wrapper.h>
-#include <aircrack-ng/crypto/sha1-git.h>
-#else
+#include <gcrypt.h>
+#endif
+
+#ifndef USE_GCRYPT
 #include <openssl/hmac.h>
+#if defined(OPENSSL_WITH_SHA1) || defined(OPENSSL_WITH_SHA256)
 #include <openssl/sha.h>
+#endif
+#ifdef OPENSSL_WITH_ARCFOUR
 #include <openssl/rc4.h>
+#endif
+#ifdef OPENSSL_WITH_MD5
 #include <openssl/md5.h>
+#endif
 #include <openssl/aes.h>
 #if HAVE_OPENSSL_CMAC_H
 #include <openssl/cmac.h>
 #endif
+#include <openssl/evp.h>
+#include <openssl/err.h>
 #endif
 
 #include <aircrack-ng/defs.h>
+#include <aircrack-ng/crypto/aes.h>
+#include <aircrack-ng/crypto/arcfour.h>
+#include <aircrack-ng/crypto/mac.h>
+#include <aircrack-ng/crypto/md5.h>
+#include <aircrack-ng/crypto/sha1.h>
+#include <aircrack-ng/crypto/sha256.h>
+
+#define PMK_LEN 32
+#define PMK_LEN_MAX 64
+
+#ifndef ETH_ALEN
+#define ETH_ALEN 6
+#endif
 
 #define CRYPT_NONE 0
 #define CRYPT_WEP 1
@@ -124,15 +147,17 @@ struct rc4_state
 
 struct AP_info;
 
-void calc_pmk(char * key, char * essid, unsigned char pmk[40]);
+void calc_pmk(const uint8_t * key,
+			  const uint8_t * essid,
+			  uint8_t pmk[static PMK_LEN]);
 int decrypt_wep(unsigned char * data, int len, unsigned char * key, int keylen);
 int encrypt_wep(unsigned char * data, int len, unsigned char * key, int keylen);
 int check_crc_buf(const unsigned char * buf, int len);
 int calc_crc_buf(const unsigned char * buf, int len);
 void calc_mic(struct AP_info * ap,
-			  unsigned char * pmk,
-			  unsigned char * ptk,
-			  unsigned char * mic);
+			  unsigned char pmk[static 32],
+			  unsigned char ptk[static 80],
+			  unsigned char mic[static 20]);
 int known_clear(
 	void * clear, int * clen, int * weight, unsigned char * wh, size_t len);
 int add_crc32(unsigned char * data, int length);
@@ -142,25 +167,33 @@ int is_dhcp_discover(void * wh, size_t len);
 int is_qos_arp_tkip(void * wh, int len);
 int calc_tkip_ppk(unsigned char * h80211,
 				  int caplen,
-				  unsigned char TK1[16],
-				  unsigned char key[16]);
-void encrypt_tkip(unsigned char * h80211, int caplen, unsigned char PTK[80]);
-int decrypt_tkip(unsigned char * h80211, int caplen, unsigned char TK1[16]);
+				  unsigned char TK1[static 16],
+				  unsigned char key[static 16]);
+void encrypt_tkip(unsigned char * h80211,
+				  int caplen,
+				  unsigned char PTK[static 80]);
+int decrypt_tkip(unsigned char * h80211,
+				 int caplen,
+				 unsigned char TK1[static 16]);
 int encrypt_ccmp(unsigned char * h80211,
 				 int caplen,
-				 unsigned char TK1[16],
-				 unsigned char PN[6]);
-int decrypt_ccmp(unsigned char * h80211, int caplen, unsigned char TK1[16]);
-int calc_ptk(struct WPA_ST_info * wpa, unsigned char pmk[32]);
+				 unsigned char TK1[static 16],
+				 unsigned char PN[static 6]);
+int decrypt_ccmp(unsigned char * h80211,
+				 int caplen,
+				 unsigned char TK1[static 16]);
+int calc_ptk(struct WPA_ST_info * wpa, unsigned char pmk[static 32]);
 int calc_tkip_mic(unsigned char * packet,
 				  int length,
-				  unsigned char ptk[80],
-				  unsigned char value[8]);
-int michael_test(unsigned char key[8],
+				  unsigned char ptk[static 80],
+				  unsigned char value[static 8]);
+int michael_test(unsigned char key[static 8],
 				 unsigned char * message,
 				 int length,
-				 unsigned char out[8]);
-int calc_tkip_mic_key(unsigned char * packet, int length, unsigned char key[8]);
+				 unsigned char out[static 8]);
+int calc_tkip_mic_key(unsigned char * packet,
+					  int length,
+					  unsigned char key[static 8]);
 
 extern const unsigned long int crc_tbl[256];
 extern const unsigned char crc_chop_tbl[256][4];

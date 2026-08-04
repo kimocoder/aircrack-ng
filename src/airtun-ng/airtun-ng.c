@@ -2,7 +2,7 @@
  *  802.11 WEP network connection tunneling
  *  based on aireplay-ng
  *
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2006-2009 Martin Beck <martin.beck2@gmx.de>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -42,22 +42,14 @@
 #include <linux/rtc.h>
 #endif
 
-#include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/ioctl.h>
-#include <sys/wait.h>
 #include <sys/time.h>
 
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <unistd.h>
-#include <dirent.h>
-#include <signal.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
-#include <time.h>
 #include <getopt.h>
 
 #include <fcntl.h>
@@ -74,7 +66,7 @@
 
 static const char usage[]
 	= "\n"
-	  "  %s - (C) 2006-2020 Thomas d'Otreppe\n"
+	  "  %s - (C) 2006-2022 Thomas d'Otreppe\n"
 	  "  Original work: Martin Beck\n"
 	  "  https://www.aircrack-ng.org\n"
 	  "\n"
@@ -146,7 +138,7 @@ static struct WPA_ST_info * st_1st = NULL;
 
 pFrag_t rFragment;
 
-static struct net_entry * find_entry(unsigned char * adress)
+static struct net_entry * find_entry(unsigned char * address)
 {
 	struct net_entry * cur = nets;
 
@@ -154,7 +146,7 @@ static struct net_entry * find_entry(unsigned char * adress)
 
 	do
 	{
-		if (!memcmp(cur->addr, adress, 6))
+		if (!memcmp(cur->addr, address, 6))
 		{
 			return (cur);
 		}
@@ -164,7 +156,7 @@ static struct net_entry * find_entry(unsigned char * adress)
 	return (NULL);
 }
 
-static void set_entry(unsigned char * adress, unsigned char network)
+static void set_entry(unsigned char * address, unsigned char network)
 {
 	struct net_entry * cur;
 
@@ -179,7 +171,7 @@ static void set_entry(unsigned char * adress, unsigned char network)
 	}
 	else
 	{
-		cur = find_entry(adress);
+		cur = find_entry(address);
 		if (cur == NULL)
 		{
 			cur = malloc(sizeof(struct net_entry));
@@ -191,13 +183,13 @@ static void set_entry(unsigned char * adress, unsigned char network)
 		}
 	}
 
-	memcpy(cur->addr, adress, 6);
+	memcpy(cur->addr, address, 6);
 	cur->net = network;
 }
 
-static int get_entry(unsigned char * adress)
+static int get_entry(unsigned char * address)
 {
-	struct net_entry * cur = find_entry(adress);
+	struct net_entry * cur = find_entry(address);
 
 	if (cur == NULL)
 	{
@@ -537,7 +529,7 @@ static int packet_recv(unsigned char * packet, size_t length)
 			smac, seqnum, &len, opt.crypt, lopt.wepkey, lopt.weplen);
 		timeoutFrag();
 
-		/* we got frag, no compelete packet avail -> do nothing */
+		/* we got frag, no complete packet avail -> do nothing */
 		if (buffer == NULL) return (1);
 
 		//             printf("got all frags!!!\n");
@@ -724,8 +716,7 @@ static int packet_recv(unsigned char * packet, size_t length)
 			/* frame 1: Pairwise == 1, Install == 0, Ack == 1, MIC == 0 */
 
 			if ((packet[z + 6] & 0x08) != 0 && (packet[z + 6] & 0x40) == 0
-				&& (packet[z + 6] & 0x80) != 0
-				&& (packet[z + 5] & 0x01) == 0)
+				&& (packet[z + 6] & 0x80) != 0 && (packet[z + 5] & 0x01) == 0)
 			{
 				/* set authenticator nonce */
 
@@ -735,8 +726,7 @@ static int packet_recv(unsigned char * packet, size_t length)
 			/* frame 2 or 4: Pairwise == 1, Install == 0, Ack == 0, MIC == 1 */
 
 			if ((packet[z + 6] & 0x08) != 0 && (packet[z + 6] & 0x40) == 0
-				&& (packet[z + 6] & 0x80) == 0
-				&& (packet[z + 5] & 0x01) != 0)
+				&& (packet[z + 6] & 0x80) == 0 && (packet[z + 5] & 0x01) != 0)
 			{
 				if (memcmp(&packet[z + 17], ZERO, 32) != 0)
 				{
@@ -769,8 +759,7 @@ static int packet_recv(unsigned char * packet, size_t length)
 			/* frame 3: Pairwise == 1, Install == 1, Ack == 1, MIC == 1 */
 
 			if ((packet[z + 6] & 0x08) != 0 && (packet[z + 6] & 0x40) != 0
-				&& (packet[z + 6] & 0x80) != 0
-				&& (packet[z + 5] & 0x01) != 0)
+				&& (packet[z + 6] & 0x80) != 0 && (packet[z + 5] & 0x01) != 0)
 			{
 				if (memcmp(&packet[z + 17], ZERO, 32) != 0)
 				{
@@ -1233,13 +1222,14 @@ int main(int argc, char * argv[])
 				return (EXIT_FAILURE);
 			}
 
-			calc_pmk(lopt.passphrase, lopt.essid, lopt.pmk);
+			calc_pmk(
+				(uint8_t *) lopt.passphrase, (uint8_t *) lopt.essid, lopt.pmk);
 		}
 	}
 
 	dev.fd_rtc = -1;
 
-/* open the RTC device if necessary */
+	/* open the RTC device if necessary */
 
 #if defined(__i386__)
 #if defined(linux)

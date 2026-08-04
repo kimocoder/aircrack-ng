@@ -1,7 +1,7 @@
 /*
  *  Airodump-ng text files output
  *
- *  Copyright (C) 2018-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2018-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -45,9 +45,6 @@
 #include <unistd.h> // ftruncate
 #include <sys/types.h> // ftruncate
 #include <sys/time.h>
-#ifdef HAVE_PCRE
-#include <pcre.h>
-#endif
 
 #include "aircrack-ng/defs.h"
 #include "airodump-ng.h"
@@ -104,9 +101,9 @@ static char * format_text_for_csv(const unsigned char * input, size_t len)
 		}
 		else if (input[i] == '\n' || input[i] == '\r' || input[i] == '\t')
 		{
-			ret[pos++]
-				= (char) ((input[i] == '\n') ? 'n' : (input[i] == '\t') ? 't'
-																		: 'r');
+			ret[pos++] = (char) ((input[i] == '\n')	  ? 'n'
+								 : (input[i] == '\t') ? 't'
+													  : 'r');
 		}
 		else
 		{
@@ -180,6 +177,7 @@ int dump_write_csv(struct AP_info * ap_1st,
 				ap_cur->bssid[5]);
 
 		ltime = localtime(&ap_cur->tinit);
+		REQUIRE(ltime != NULL);
 
 		fprintf(opt.f_txt,
 				"%04d-%02d-%02d %02d:%02d:%02d, ",
@@ -191,6 +189,7 @@ int dump_write_csv(struct AP_info * ap_1st,
 				ltime->tm_sec);
 
 		ltime = localtime(&ap_cur->tlast);
+		REQUIRE(ltime != NULL);
 
 		fprintf(opt.f_txt,
 				"%04d-%02d-%02d %02d:%02d:%02d, ",
@@ -286,11 +285,12 @@ int dump_write_csv(struct AP_info * ap_1st,
 
 		if (ap_cur->key != NULL)
 		{
-			for (i = 0; i < (int) strlen(ap_cur->key); i++)
+			const int key_len = strlen(ap_cur->key);
+
+			for (i = 0; i < key_len; i++)
 			{
 				fprintf(opt.f_txt, "%02X", ap_cur->key[i]);
-				if (i < (int) (strlen(ap_cur->key) - 1))
-					fprintf(opt.f_txt, ":");
+				if (i < (key_len - 1)) fprintf(opt.f_txt, ":");
 			}
 		}
 
@@ -325,6 +325,7 @@ int dump_write_csv(struct AP_info * ap_1st,
 				st_cur->stmac[5]);
 
 		ltime = localtime(&st_cur->tinit);
+		REQUIRE(ltime != NULL);
 
 		fprintf(opt.f_txt,
 				"%04d-%02d-%02d %02d:%02d:%02d, ",
@@ -336,6 +337,7 @@ int dump_write_csv(struct AP_info * ap_1st,
 				ltime->tm_sec);
 
 		ltime = localtime(&st_cur->tlast);
+		REQUIRE(ltime != NULL);
 
 		fprintf(opt.f_txt,
 				"%04d-%02d-%02d %02d:%02d:%02d, ",
@@ -415,6 +417,7 @@ int dump_write_airodump_ng_logcsv_add_ap(const struct AP_info * ap_cur,
 
 	// Local computer time
 	const struct tm * ltime = localtime(&ap_cur->tlast);
+	REQUIRE(ltime != NULL);
 	fprintf(opt.f_logcsv,
 			"%04d-%02d-%02d %02d:%02d:%02d,",
 			1900 + ltime->tm_year,
@@ -487,6 +490,7 @@ int dump_write_airodump_ng_logcsv_add_client(const struct AP_info * ap_cur,
 
 	// Local computer time
 	struct tm * ltime = localtime(&ap_cur->tlast);
+	REQUIRE(ltime != NULL);
 	fprintf(opt.f_logcsv,
 			"%04d-%02d-%02d %02d:%02d:%02d,",
 			1900 + ltime->tm_year,
@@ -607,7 +611,7 @@ char * get_manufacturer_from_string(char * buffer)
 {
 	char * manuf = NULL;
 	char * buffer_manuf;
-	if (buffer != NULL && strlen(buffer) > 0)
+	if (buffer != NULL && *buffer != '\0')
 	{
 		buffer_manuf = strstr(buffer, "(hex)");
 		if (buffer_manuf != NULL)
@@ -623,17 +627,18 @@ char * get_manufacturer_from_string(char * buffer)
 			// Did we stop at the manufacturer
 			if (*buffer_manuf != '\0')
 			{
+				const int buffer_manuf_len_minus_1 = strlen(buffer_manuf);
 
 				// First make sure there's no end of line
-				if (buffer_manuf[strlen(buffer_manuf) - 1] == '\n'
-					|| buffer_manuf[strlen(buffer_manuf) - 1] == '\r')
+				if (buffer_manuf[buffer_manuf_len_minus_1] == '\n'
+					|| buffer_manuf[buffer_manuf_len_minus_1] == '\r')
 				{
-					buffer_manuf[strlen(buffer_manuf) - 1] = '\0';
-					if (*buffer_manuf != '\0'
-						&& (buffer_manuf[strlen(buffer_manuf) - 1] == '\n'
-							|| buffer[strlen(buffer_manuf) - 1] == '\r'))
+					buffer_manuf[buffer_manuf_len_minus_1] = '\0';
+					if (buffer_manuf_len_minus_1 >= 1
+						&& (buffer_manuf[buffer_manuf_len_minus_1 - 1] == '\n'
+							|| buffer[buffer_manuf_len_minus_1 - 1] == '\r'))
 					{
-						buffer_manuf[strlen(buffer_manuf) - 1] = '\0';
+						buffer_manuf[buffer_manuf_len_minus_1 - 1] = '\0';
 					}
 				}
 				if (*buffer_manuf != '\0')
@@ -684,9 +689,11 @@ static int dump_write_kismet_netxml_client_info(struct ST_info * client,
 					   || memcmp(client->base->bssid, BROADCAST, 6) == 0);
 
 	strncpy(first_time, ctime(&client->tinit), TIME_STR_LENGTH - 1);
+	ENSURE(strlen(first_time) >= 1);
 	first_time[strlen(first_time) - 1] = 0; // remove new line
 
 	strncpy(last_time, ctime(&client->tlast), TIME_STR_LENGTH - 1);
+	ENSURE(strlen(last_time) >= 1);
 	last_time[strlen(last_time) - 1] = 0; // remove new line
 
 	fprintf(opt.f_kis_xml,
@@ -920,9 +927,11 @@ int dump_write_kismet_netxml(struct AP_info * ap_1st,
 
 		++network_number; // Network Number
 		strncpy(first_time, ctime(&ap_cur->tinit), TIME_STR_LENGTH - 1);
+		ENSURE(strlen(first_time) >= 1);
 		first_time[strlen(first_time) - 1] = 0; // remove new line
 
 		strncpy(last_time, ctime(&ap_cur->tlast), TIME_STR_LENGTH - 1);
+		ENSURE(strlen(last_time) >= 1);
 		last_time[strlen(last_time) - 1] = 0; // remove new line
 
 		fprintf(opt.f_kis_xml,
@@ -1044,8 +1053,9 @@ int dump_write_kismet_netxml(struct AP_info * ap_1st,
 		   FIXME: Take G.freqoption in account */
 		fprintf(opt.f_kis_xml,
 				"\t\t<freqmhz>%d %lu</freqmhz>\n",
-				(ap_cur->channel) == -1 ? 0 : getFrequencyFromChannel(
-												  ap_cur->channel),
+				(ap_cur->channel) == -1
+					? 0
+					: getFrequencyFromChannel(ap_cur->channel),
 				// ap_cur->nb_data + ap_cur->nb_bcn );
 				ap_cur->nb_pkt);
 
@@ -1184,9 +1194,11 @@ int dump_write_kismet_netxml(struct AP_info * ap_1st,
 
 			/* Write new network information */
 			strncpy(first_time, ctime(&st_cur->tinit), TIME_STR_LENGTH - 1);
+			ENSURE(strlen(first_time) >= 1);
 			first_time[strlen(first_time) - 1] = 0; // remove new line
 
 			strncpy(last_time, ctime(&st_cur->tlast), TIME_STR_LENGTH - 1);
+			ENSURE(strlen(last_time) >= 1);
 			last_time[strlen(last_time) - 1] = 0; // remove new line
 
 			fprintf(opt.f_kis_xml,

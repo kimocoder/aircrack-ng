@@ -1,0 +1,79 @@
+name: Other Linux testing
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/manual.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/manual.yml'
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 2 * *"
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - 
+        name: Git Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          verbose: true
+          failure-threshold: error
+      - 
+        name: Lint Release Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: './Dockerfile.release'
+          verbose: true
+          failure-threshold: error
+      -
+        name: Shellcheck package install script
+        uses: sudo-bot/action-shellcheck@latest
+        with:
+          cli-args: "docker_package_install.sh"
+
+  linux:
+    runs-on: ubuntu-22.04
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [
+          'debian:12',
+          'clearlinux:base',
+          'rockylinux:9',
+          'almalinux:9',
+          'opensuse/leap:15',
+          'archlinux:base',
+          'manjarolinux/base',
+          'ubuntu:24.04',
+          'ubuntu:24.10',
+          'oraclelinux:9',
+          'fedora:39',
+          'fedora:40',
+          'fedora:41',
+          'aclemons/slackware:15.0'
+        ]
+    steps:
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      -
+        name: Build ${{ matrix.platform }}" on linux/amd64
+        uses: docker/build-push-action@v5
+        with:
+          platforms: linux/amd64
+          build-args: "IMAGE_BASE=${{ matrix.platform }}"
+          push: false

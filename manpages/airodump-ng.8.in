@@ -4,7 +4,7 @@
 airodump-ng - a wireless packet capture tool for aircrack-ng
 .SH SYNOPSIS
 .B airodump-ng
-[options] <interface name>
+[options] <interface name>[,<interface name>,...]
 .SH DESCRIPTION
 .BI airodump-ng
 is used for packet capturing of raw 802.11 frames for the intent of using them with aircrack-ng. If you have a GPS receiver connected to the computer, airodump-ng is capable of logging the coordinates of the found access points. Additionally, airodump-ng writes out a text file containing the details of all access points and clients seen.
@@ -29,17 +29,23 @@ It will record all beacons into the cap file. By default it only records one bea
 .I -u <secs>, --update <secs>
 Delay <secs> seconds delay between display updates (default: 1 second). Useful for slow CPU.
 .TP
-.I --showack
+.I -A, --showack
 Prints ACK/CTS/RTS statistics. Helps in debugging and general injection optimization. It is indication if you inject, inject too fast, reach the AP, the frames are valid encrypted frames. Allows one to detect "hidden" stations, which are too far away to capture high bitrate frames, as ACK frames are sent at 1Mbps.
 .TP
 .I -h
 Hides known stations for \-\-showack.
 .TP
-.I --berlin <secs>
-Time before removing the AP/client from the screen when no more packets are received (Default: 120 seconds). See airodump-ng source for the history behind this option ;).
+.I -f <msecs>
+Time in milliseconds between hopping channels.
+.TP
+.I -B <secs>, --berlin <secs>
+Time before removing the AP/client from the screen when no more frames are received (Default: 120 seconds). See airodump-ng source for the history behind this option ;).
 .TP
 .I -c <channel>[,<channel>[,...]], --channel <channel>[,<channel>[,...]]
 Indicate the channel(s) to listen to. By default airodump-ng hops on all 2.4GHz channels.
+.TP
+.I -O, --ignore-other-chans
+Ignore access points on channels other than the selected one(s). Requires \-\-channel (or \-c).
 .TP
 .I -C <freq>[,<freq>[,...]]
 Indicates the frequencies to listen to. By default airodump-ng hops on all 2.4GHz channels.
@@ -63,7 +69,7 @@ Set the channel to be in HT40- (802.11n). It requires the frequency 20MHz below 
 Reads packet from a file.
 .TP
 .I -T, --real-time
-While reading packets from a file specified with \(aq-r <file>\(aq, simulate the arrival rate of them, as if they were "live".
+While reading frames from a file specified with \(aq-r <file>\(aq, simulate the arrival rate of them, as if they were "live".
 .TP
 .I -x <msecs>
 Active Scanning Simulation (send probe requests and parse the probe responses).
@@ -77,11 +83,11 @@ Display APs uptime obtained from its beacon timestamp.
 .I -W, --wps
 Display a WPS column with WPS version, config method(s), AP Setup Locked obtained from APs beacon or probe response (if any).
 .TP
-.I --output-format <formats>
+.I -o <formats>, --output-format <formats>
 Define the formats to use (separated by a comma). Possible values are: pcap, ivs, csv, gps, kismet, netxml. The default values are: pcap, csv, kismet, kismet-newcore.
 \(aqpcap\(aq is for recording a capture in pcap format, \(aqivs\(aq is for ivs format (it is a shortcut for --ivs). \(aqcsv\(aq will create an airodump-ng CSV file, \(aqkismet\(aq will create a kismet csv file and \(aqkismet-newcore\(aq will create the kismet netxml file. \(aqgps\(aq is a shortcut for --gps.
 .br
-Theses values can be combined with the exception of ivs and pcap.
+These values can be combined with the exception of ivs and pcap.
 .TP
 .I -I <seconds>, --write-interval <seconds>
 Output file(s) write interval for CSV, Kismet CSV and Kismet NetXML in seconds (minimum: 1 second). By default: 5 seconds. Note that an interval too small might slow down airodump\-ng.
@@ -98,21 +104,30 @@ Removes the message that says \(aqfixed channel <interface>: -1\(aq.
 It will only show networks matching the given encryption. Note that WPA is a shortcut for WPA1, WPA2 and WPA3. May be specified more than once: \(aq\-t OPN \-t WPA2\(aq
 .TP
 .I -d <bssid>, --bssid <bssid>
-It will only show networks, matching the given bssid.
+It will only show networks, matching the given bssid. May be specified more than once: \(aq\-d 0D:F7:E2:61:C6:6D \-d 5B:62:A1:83:00:A8\(aq
 .TP
 .I -m <mask>, --netmask <mask>
 It will only show networks, matching the given bssid ^ netmask combination. Need \-\-bssid (or \-d) to be specified.
 .TP
 .I -a
-It will only show associated clients.
+It will only show associated stations. Using in combination with -z won't display any of the stations.
+.TP
+.I -z
+It will only show unassociated stations. Using in combination with -a won't display any of the stations.
 .TP
 .I -n <int>, --min-packets <int>
-The minimum number of packets received by an AP before displaying it.
+The minimum number of packets received by an AP before displaying it. Default value: 2.
 .TP
-.I -N, --essid
-Filter APs by ESSID. Can be used several times to match a set of ESSID.
+.I -p <int>, --min-power <int>
+Filter out APs with PWR less than the specified value (default value: -120).
 .TP
-.I -R, --essid-regex
+.I -q <int>, --min-rxq <int>
+Filter out APs with RXQ less than the specified value (default value: 0). Valid range: 0..100. Requires --channel (or -c) or -C.
+.TP
+.I -N <essid>, --essid <essid>
+Filter APs by ESSID. May be specified more than once: \(aq\-N AP1 \-N AP2\(aq
+.TP
+.I -R <regex>, --essid-regex <regex>
 Filter APs by ESSID using a regular expression.
 .SH INTERACTION
 .PP
@@ -199,10 +214,10 @@ BSSID              STATION            PWR   Rate   Lost   Frames  Notes  Probes
 MAC address of the access point. In the Client section, a BSSID of "(not associated)" means that the client is not associated with any AP. In this unassociated state, it is searching for an AP to connect with.
 .TP
 .I PWR
-Signal level reported by the card. Its signification depends on the driver, but as the signal gets higher you get closer to the AP or the station. If the BSSID PWR is -1, then the driver doesn\(aqt support signal level reporting. If the PWR is -1 for a limited number of stations then this is for a packet which came from the AP to the client but the client transmissions are out of range for your card. Meaning you are hearing only 1/2 of the communication. If all clients have PWR as -1 then the driver doesn\(aqt support signal level reporting.
+Signal level reported by the Wi-Fi adapter. Its signification depends on the driver, but as you get closer to the AP or the station, the signal gets higher. It usually is the RSSI (https://en.wikipedia.org/wiki/Received_signal_strength_indication). If the BSSID PWR is -1, then the driver doesn\(aqt support signal level reporting. If PWR is -1 for some access points, it means the access point is out of range, however airodump-ng got at least a frame sent to it. If the PWR is -1 for a limited number of stations then this is for a packet which came from the AP to the client but the client transmissions are out of range for your Wi-Fi adapter. Meaning you are hearing only 1/2 of the communication. If all clients have PWR as -1 then it is likely that the driver doesn\(aqt support signal level reporting. A strong signal is around -40. An average one is around -55, and a weak one starts around -70. Wi-Fi adapters lower limit (aka receive sensitivity) is often around -80/-90.
 .TP
 .I RXQ
-Only shown when on a fixed channel. Receive Quality as measured by the percentage of packets (management and data frames) successfully received over the last 10 seconds. It\(aqs measured over all management and data frames. That\(aqs the clue, this allows you to read more things out of this value. Lets say you got 100 percent RXQ and all 10 (or whatever the rate) beacons per second coming in. Now all of a sudden the RXQ drops below 90, but you still capture all sent beacons. Thus you know that the AP is sending frames to a client but you can\(aqt hear the client nor the AP sending to the client (need to get closer). Another thing would be, that you got a 11MB card to monitor and capture frames (say a prism2.5) and you have a very good position to the AP. The AP is set to 54MBit and then again the RXQ drops, so you know that there is at least one 54MBit client connected to the AP.
+Only shown when on a fixed channel. Receive Quality as measured by the percentage of frames (management and data frames) successfully received over the last 10 seconds. It\(aqs measured over all management and data frames. That\(aqs the clue, this allows you to read more things out of this value. Lets say you got 100 percent RXQ and all 10 (or whatever the rate) beacons per second coming in. Now all of a sudden the RXQ drops below 90, but you still capture all sent beacons. Thus you know that the AP is sending frames to a client but you can\(aqt hear the client nor the AP sending to the client (need to get closer). Another thing would be, that you got a 11MB card to monitor and capture frames (say a prism2.5) and you have a very good position to the AP. The AP is set to 54MBit and then again the RXQ drops, so you know that there is at least one 54MBit client connected to the AP.
 .TP
 .I Beacons
 Number of beacons sent by the AP. Each access point sends about ten beacons per second at the lowest rate (1M), so they can usually be picked up from very far.
@@ -214,7 +229,7 @@ Number of captured data packets (if WEP, unique IV count), including data broadc
 Number of data packets per second measure over the last 10 seconds.
 .TP
 .I CH
-Channel number (taken from beacon packets). Note: sometimes packets from other channels are captured even if airodump-ng is not hopping, because of radio interference.
+Channel number (taken from beacon frames). Note: sometimes frames from other channels are captured even if airodump-ng is not hopping, because of radio interference.
 .TP
 .I MB
 Maximum speed supported by the AP. If MB = 11, it\(aqs 802.11b, if MB = 22 it\(aqs 802.11b+ and higher rates are 802.11g. The dot (after 54 above) indicates short preamble is supported. \(aqe\(aq indicates that the network has QoS (802.11e) enabled.
@@ -241,7 +256,7 @@ MAC address of each associated station or stations searching for an AP to connec
 This is only displayed when using a single channel. The first number is the last data rate from the AP (BSSID) to the Client (STATION). The second number is the last data rate from Client (STATION) to the AP (BSSID).
 .TP
 .I Lost
-It means lost packets coming from the client. To determine the number of packets lost, there is a sequence field on every non-control frame, so you can subtract the second last sequence number from the last sequence number and you know how many packets you have lost.
+It means lost frames coming from the client. To determine the number of frames lost, there is a sequence field on every non-control frame, so you can subtract the second last sequence number from the last sequence number and you know how many frames you have lost.
 .TP
 .I Notes
 Additional information about the client, such as captured EAPOL or PMKID.

@@ -1,5 +1,5 @@
 /*
-  *  Server for osdep network driver.  Uses osdep itself!  [ph33r teh recursion]
+  *  Server for osdep network driver.  Uses osdep itself!  [ph33r the recursion]
   *
   *  Copyright (c) 2007-2009  Andrea Bittau <a.bittau@cs.ucl.ac.uk>
   *
@@ -119,7 +119,7 @@ static void client_add(struct sstate * ss, int s, struct sockaddr_in * s_in)
 
 	struct client * c;
 
-	if (!(c = calloc(sizeof(struct client), 1))) err(1, "calloc()");
+	if (!(c = calloc(1, sizeof(struct client)))) err(1, "calloc()");
 
 	c->c_s = s;
 	char * netip = inet_ntoa(s_in->sin_addr);

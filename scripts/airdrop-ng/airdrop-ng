@@ -5,12 +5,12 @@ __version__ = "2012.2.17.1.54.00"
 __licence__ = "GPL2"
 """
 Airdrop-ng A rule based wireless deauth tool
-a compoent of project lemonwedge
+a component of project lemonwedge
 Written by Thex1le and King_Tuna
 """
-import sys, optparse, re, time, random, os
+import sys, argparse, re, time, random, os
 import pdb
-#update the path with sub directories
+#update the path with subdirectories
 #lib for the libraries and support for the oui.txt file
 
 # adds possible paths for support modules
@@ -148,7 +148,7 @@ class parseFiles:
         bssidList     = []
         essidList     = {}
         #build an essid to bssid lookup
-        #BUG may be here if a essid has multiple bssids
+        #BUG may be here if an essid has multiple bssids
         for ap in self.airoAP.values():
             essidList[ap["bssid"]] = ap["essid"]
         compTrue = ruleRaw[1:].find(';')
@@ -160,24 +160,24 @@ class parseFiles:
                 delim = ';'
             else: 
                 delim = ','
-        for postion in ruleRaw[pipe+1:].split(delim):
-            if postion.upper() == "ANY": #client any
+        for position in ruleRaw[pipe+1:].split(delim):
+            if position.upper() == "ANY": #client any
                 break
             else:
-                cmac = postion.upper().replace("-",":") 
+                cmac = position.upper().replace("-",":")
                 if self.validMacChk(cmac) == True: 
                     #build a list of clients
                     clientList.append(cmac)
-                elif ouiLookup.compKeyChk(postion) == True: #company oui lookup
+                elif ouiLookup.compKeyChk(position) == True: #company oui lookup
                     #check to see if it's a company name we can lookup
-                    clientOuiList.extend(ouiLookup.lookup_company(postion))
-                elif ouiLookup.ouiKeyChk(postion) == True: #oui match
+                    clientOuiList.extend(ouiLookup.lookup_company(position))
+                elif ouiLookup.ouiKeyChk(position) == True: #oui match
                     #check to see if it's an oui we can lookup
-                    clientOuiList = [postion] 
+                    clientOuiList = [position]
                 else:
                     message.printMessage([
                         "\nInvalid mac or company name",
-                        "at "+postion+" in "+ruleRaw," Moving on to next rule"])
+                        "at "+position+" in "+ruleRaw," Moving on to next rule"])
                     return False
 
         #translate ouis then append them to client list
@@ -196,7 +196,7 @@ class parseFiles:
             
             elif bssidMac in essidList.values():
                 #bssidMac is provided by the user and at this point is most
-                #likely a essid
+                #likely an essid
                 for bssid in essidList:
                     #bssid is a true bssid
                     if essidList[bssid] == bssidMac:
@@ -217,7 +217,7 @@ class parseFiles:
             else:
                 message.printMessage([
                     "\nInvalid mac or company name",
-                    "at "+postion+" in "+ruleRaw," Moving on to next rule"])
+                    "at "+position+" in "+ruleRaw," Moving on to next rule"])
                 return False
         else:
             bssidList = ["ANY"]
@@ -232,14 +232,14 @@ class parseFiles:
             #if we only have one bssid we don't want to nest the dict in a list
                 for bssid in bssidList:
                     
-                    if clientList == [] and postion.upper() != 'ANY':
+                    if clientList == [] and position.upper() != 'ANY':
                         ruleDict = {
                             "state":state,
                             "bssid":bssid,
-                            "clients":[postion],
+                            "clients":[position],
                             "raw":ruleRaw}
                     
-                    if clientList == [] and postion.upper() == 'ANY':
+                    if clientList == [] and position.upper() == 'ANY':
                         ruleDict = {
                             "state":state,
                             "bssid":bssid,
@@ -255,14 +255,14 @@ class parseFiles:
                 #if more than one bssid nest each rule dict in a list
                 ruleDict = []
                 for bssid in bssidList:
-                    if clientList == [] and postion.upper() != 'ANY':
+                    if clientList == [] and position.upper() != 'ANY':
                         ruleDict.append({
                             "state":state,
                             "bssid":bssid,
-                            "clients":[postion],
+                            "clients":[position],
                             "raw":ruleRaw
                             })
-                    elif clientList == [] and postion.upper() == 'ANY':
+                    elif clientList == [] and position.upper() == 'ANY':
                         ruleDict.append({
                             "state":state,
                             "bssid":bssid,
@@ -423,7 +423,7 @@ class ruleMatch:
                 #if this var doesn't get set it causes an error
             else:
                 message.printMessage([
-                    "\nInvaid bssid "+self.bssid+" not found in sniffed data",
+                    "\nInvalid bssid "+self.bssid+" not found in sniffed data",
                     "Rule number "+self.num,self.rule, 
                     "Moving to next rule\n"])
                 return
@@ -440,7 +440,7 @@ class ruleMatch:
                         #update current working client
                         self.Client = client 
                         try: 
-                            #atempt to remove client from capr dict
+                            #attempt to remove client from capr dict
                             position = self.capr[self.bssid].index(self.Client)
                             del self.capr[self.bssid][position]
                         except ValueError:
@@ -448,7 +448,7 @@ class ruleMatch:
                     if self.violators.has_key(self.bssid):
                         #set allow bcast to False
                         self.violators[self.bssid][0]["allow"] = False
-                        #set channel incase it has changed
+                        #set channel in case it has changed
                         self.violators[self.bssid][0]["channel"] = self.channel 
                     else:
                         self.violators[self.bssid] = [
@@ -523,7 +523,7 @@ class ruleMatch:
                             "Allow "+self.Client+" client to "+self.bssid+" bssid\n"])
                 else: 
                     message.printError(["ERROR in config file at:",
-                        "Rule Numer "+self.num,
+                        "Rule Number "+self.num,
                         self.rule,self.rulesDB,
                         "Could not match "+self.bssid+" or "+self.clients,
                         "Please check the rule and try again"])
@@ -544,7 +544,7 @@ class ruleMatch:
                             self.violators[self.bssid][1].extend(
                                     self.capr[self.bssid] #add all clients
                                     )
-                            #update channel incase it changed
+                            #update channel in case it changed
                             self.violators[self.bssid][0]["channel"] = self.channel
                         else:
                             self.violators[self.bssid] = [
@@ -639,7 +639,7 @@ class ruleMatch:
                         #do final processing on all affected clients
                         #remove duplicates
                         self.violators[self.bssid][1] = self.rm_dupe(self.violators[self.bssid][1])
-                        #update channel on the card incase it changed
+                        #update channel on the card in case it changed
                         self.violators[self.bssid][0]["channel"] = self.channel
             else:
                 message.printMessage(["Config file error at line",
@@ -666,7 +666,7 @@ class packetGenerator:
                 "ipv6":'\x33\x33\x00\x00\x00\x16', #ipv6 broadcast
                 "stp":'\x01\x80\xc2\x00\x00\x00'   #Spanning Tree broadcast
                 } 
-                #note this also contains some multi cast addresses
+                #note this also contains some multicast addresses
         self.packetReason = [
                 '\x0a\x00', #Requested capability set is too broad 
                 '\x01\x00', #unspecified 
@@ -714,7 +714,7 @@ class packetGenerator:
                 packets.append([
                     self.buildPacket(
                         self.packetTypes[type], #packet type
-                        self.destination_addr,  #destinaion
+                        self.destination_addr,  #destination
                         self.source_addr,       #source
                         self.bss_id_addr,       #bssid
                         self.randReason()       #resoncode
@@ -848,11 +848,11 @@ def lorconTX(pktNum=5,packet=None, channel=1 ,slept=0):
 
 def makeMagic(targets,slept = 0):
     """
-    function where the targes are looped though 
+    function where the targets are looped through
     and packets are sent to them
     """
     packetQue = []
-    packetCount = 1 #hard coded number of how many copys of each packet is sent
+    packetCount = 1 #hardcoded number of how many copies of each packet is sent
     for bssid in targets:
         for client in targets[bssid][1]:
             engine = packetGenerator(
@@ -879,7 +879,7 @@ def makeMagic(targets,slept = 0):
 
 def help():
     """
-    function for lemonwedge intigration
+    function for lemonwedge integration
     supports its show help call
     """
     print("<"+"~"*59+">\n")
@@ -940,22 +940,22 @@ if __name__ == "__main__":
     """
     usage()
     
-    parser = optparse.OptionParser("usage: %prog options [-i,-t,-r] -s -p -b -n")  #
-    parser.add_option("-i", "--interface",  dest="card",nargs=1, 
+    parser = argparse.ArgumentParser(description="airdrop-ng is a program used for targeted, rule-based deauthentication of users.")  #
+    parser.add_argument("-i", "--interface",  dest="card",nargs=1, 
                 help="Wireless card in monitor mode to inject from")
-    parser.add_option("-t", "--dump", dest="data", nargs=1 ,
+    parser.add_argument("-t", "--dump", dest="data", nargs=1 ,
                 help="Airodump txt file in CSV format NOT the pcap")
-    parser.add_option("-r", "--rule",dest="rule", nargs=1 ,help="Rule File for matched deauths")
-    parser.add_option("-s", "--sleep",dest="slept",default=0,nargs=1,type="int",help="Time to sleep between sending each packet")
-    parser.add_option("-b", "--debug",dest="debug",action="store_true",default=False,help="Turn on Rule Debugging")
-    parser.add_option("-l", "--logging",dest="log",action="store_true",default=False,help="Enable Logging to a file, if file path not provided airdrop will log to default location")
-    parser.add_option("-n", "--nap",dest="nap",default=0,nargs=1,help="Time to sleep between loops")
+    parser.add_argument("-r", "--rule",dest="rule", nargs=1 ,help="Rule File for matched deauths")
+    parser.add_argument("-s", "--sleep",dest="slept",default=0,nargs=1,type=int,help="Time to sleep between sending each packet")
+    parser.add_argument("-b", "--debug",dest="debug",action="store_true",default=False,help="Turn on Rule Debugging")
+    parser.add_argument("-l", "--logging",dest="log",nargs="?",action="store",default=False,const=True,help="Enable Logging to a file, if file path not provided airdrop will log to default location")
+    parser.add_argument("-n", "--nap",dest="nap",default=0,nargs=1,help="Time to sleep between loops")
 
     if len(sys.argv) <= 1: #check and show help if no arguments are provided at runtime
                 parser.print_help()
                 commandUsage()
                 sys.exit(0)
-    (options, args) = parser.parse_args()
+    args = parser.parse_args()
     #set the program loop value
     
     #************
@@ -970,10 +970,13 @@ if __name__ == "__main__":
     
     
     #start up printing
-    if args == []:
-        message = messages(options.log)
+    if args.log is True or args.log is False:
+        # if -l is supplied without a path --> args.log is True
+        # if -l is not supplied --> args.log is False
+        message = messages(args.log)
     else:
-        message = messages(options.log,args[0])
+        # if -l is supplied with a path --> args.log is the path
+        message = messages(True, args.log)
 
     
     TotalPacket = 0 #total packets tx'd
@@ -1001,18 +1004,18 @@ if __name__ == "__main__":
                 'Unable to find liborcon2.so in /usr/local/lib or /usr/lib , is lorcon2 installed?'])
                 sys.exit(-1)
             """
-            tx = PyLorcon2.Context(options.card)
+            tx = PyLorcon2.Context(args.card[0])
             tx.open_injmon()
         except PyLorcon2.Lorcon2Exception as e:
             message.printMessage(["\n",
-                e,"Interface %s does not exist" %(options.card)])
+                e,"Interface %s does not exist" %(args.card[0])])
             sys.exit(-1)
         except ValueError:
             message.printMessage(["\n",
-                "Interface %s does not exist" %(options.card)])
+                "Interface %s does not exist" %(args.card[0])])
             sys.exit(-1)
         try:
-            #populate the oui lookup datatbases
+            #populate the oui lookup databases
             try:    
                 try:
                     ouiLookup = libOuiParse.macOUI_lookup("./support/oui.txt")
@@ -1029,14 +1032,14 @@ if __name__ == "__main__":
             sys.exit(-1)
         
         #Start the main loop
-        napTime = float(options.nap)
-        Targeting = getTargets(options.rule,options.data,options.debug)
+        napTime = float(args.nap[0])
+        Targeting = getTargets(args.rule[0],args.data[0],args.debug)
         #set zero packet flag to false
         zp = False
         while True:
                 Targeting.run() 
                 if Targeting.targets != None:
-                    rtnPktCount = makeMagic(Targeting.targets,int(options.slept))
+                    rtnPktCount = makeMagic(Targeting.targets,int(args.slept[0]))
                     if rtnPktCount == 0:
                         message.printMessage("Zero Packets were to be sent, Napping for 5 sec to await changes in sniffed data\n")
                         zp = True
@@ -1051,5 +1054,5 @@ if __name__ == "__main__":
 
     except (KeyboardInterrupt, SystemExit):
         message.printMessage(["\nAirdrop-ng will now exit","Sent "+str(TotalPacket)+" Packets",
-            "\nExiting Program, Please take your card "+options.card+" out of monitor mode"])
+            "\nExiting Program, Please take your card "+args.card[0]+" out of monitor mode"])
         sys.exit(0)

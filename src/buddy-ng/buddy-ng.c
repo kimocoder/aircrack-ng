@@ -33,7 +33,6 @@
 #include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
-#include <assert.h>
 #include <grp.h>
 #include <sys/utsname.h>
 
@@ -279,7 +278,7 @@ int main(int argc, char * argv[])
 	while (1)
 	{
 		len = sizeof(dude_sin);
-		printf("Waiting for connexion\n");
+		printf("Waiting for connection\n");
 		dude = accept(s, (struct sockaddr *) &dude_sin, (socklen_t *) &len);
 		if (dude == -1) err(1, "accept()");
 

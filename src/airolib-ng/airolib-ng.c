@@ -43,9 +43,7 @@
 #include <string.h>
 #include <sqlite3.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <getopt.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -109,7 +107,7 @@ static void print_help(const char * msg)
 		   EXPORT_ESSID);
 	free(version_info);
 
-	if (msg && strlen(msg) > 0)
+	if (msg && *msg != '\0')
 	{
 		printf("%s", msg);
 		puts("");
@@ -604,9 +602,11 @@ static void batch_process(sqlite3 * db)
 
 // Verify an ESSID. Returns 1 if ESSID is invalid.
 // TODO More things to verify? Invalid chars?
-static int verify_essid(char * essid)
+static int verify_essid(char * const essid)
 {
-	return (essid == NULL || strlen(essid) < 1 || strlen(essid) > 32);
+	const size_t essid_len = essid ? strlen(essid) : 0;
+
+	return (essid_len < 1 || essid_len > 32);
 }
 
 // sql function which checks a given ESSID
@@ -623,9 +623,11 @@ sql_verify_essid(sqlite3_context * context, int argc, sqlite3_value ** values)
 	sqlite3_result_int(context, verify_essid(essid));
 }
 
-static int verify_passwd(char * passwd)
+static int verify_passwd(char * const passwd)
 {
-	return (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63);
+	const size_t passwd_len = passwd ? strlen(passwd) : 0;
+
+	return (passwd_len < 8 || passwd_len > 63);
 }
 
 static void
@@ -748,7 +750,7 @@ static void export_cowpatty(sqlite3 * db, char * essid, char * filename)
 		return;
 	}
 
-	if (filename == NULL || strlen(filename) == 0)
+	if (filename == NULL || *filename == '\0')
 	{
 		printf("Invalid filename (NULL)");
 		return;
@@ -1048,8 +1050,8 @@ sql_calcpmk(sqlite3_context * context, int argc, sqlite3_value ** values)
 	REQUIRE(values != NULL);
 
 	unsigned char pmk[40];
-	char * passwd = (char *) sqlite3_value_blob(values[1]);
-	char * essid = (char *) sqlite3_value_blob(values[0]);
+	const uint8_t * passwd = (const uint8_t *) sqlite3_value_blob(values[1]);
+	const uint8_t * essid = (const uint8_t *) sqlite3_value_blob(values[0]);
 	if (argc < 2 || passwd == 0 || essid == 0)
 	{
 		sqlite3_result_error(
@@ -1317,7 +1319,7 @@ int main(int argc, char ** argv)
 	signal(SIGTERM, sighandler);
 
 	option = getopt_long(
-		argc, argv, "bc:d:e:hi:s:t:v:", long_options, &option_index);
+		argc - 1, argv + 1, "bc:d:e:hi:s:t:v:", long_options, &option_index);
 
 	if (option > 0)
 	{

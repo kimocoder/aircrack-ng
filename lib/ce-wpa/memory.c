@@ -48,6 +48,8 @@
  * There's ABSOLUTELY NO WARRANTY, express or implied.
  */
 
+#define _POSIX_C_SOURCE 200112L
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -81,9 +83,12 @@ static struct rm_list * mem_alloc_tiny_memory;
 static void add_memory_link(void * v)
 {
 	struct rm_list * p = (struct rm_list *) mem_alloc(sizeof(struct rm_list));
-	p->next = mem_alloc_tiny_memory;
-	p->mem = v;
-	mem_alloc_tiny_memory = p;
+	if (p)
+	{
+		p->next = mem_alloc_tiny_memory;
+		p->mem = v;
+		mem_alloc_tiny_memory = p;
+	}
 }
 // call at program exit.
 void cleanup_tiny_memory(void)
@@ -399,13 +404,13 @@ void alter_endianity(void * _x, unsigned int size)
 	 + ((i) & (0xffffffff - 3)) * SIMD_COEF_32                                 \
 	 + (3 - ((i) &3))                                                          \
 	 + (unsigned int) index / SIMD_COEF_32 * SHA_BUF_SIZ * 4                   \
-		   * SIMD_COEF_32) // for endianity conversion
+		   * SIMD_COEF_32) // for endianness conversion
 #define SHAGETOUTPOS(i, index)                                                 \
 	((index & (SIMD_COEF_32 - 1)) * 4                                          \
 	 + ((i) & (0xffffffff - 3)) * SIMD_COEF_32                                 \
 	 + (3 - ((i) &3))                                                          \
 	 + (unsigned int) index / SIMD_COEF_32 * 20                                \
-		   * SIMD_COEF_32) // for endianity conversion
+		   * SIMD_COEF_32) // for endianness conversion
 // for MD4/MD5 or any 64 byte LE SSE interleaved hash
 #define GETPOS(i, index)                                                       \
 	((index & (SIMD_COEF_32 - 1)) * 4                                          \

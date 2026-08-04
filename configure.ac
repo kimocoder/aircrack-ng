@@ -1,6 +1,6 @@
 # Aircrack-ng
 #
-# Copyright (C) 2017-2020 Joseph Benden <joe@benden.us>
+# Copyright (C) 2017-2022 Joseph Benden <joe@benden.us>
 #
 # Autotool support was written by: Joseph Benden <joe@benden.us>
 #
@@ -37,9 +37,10 @@
 # If you delete this exception statement from all source files in the
 # program, then also delete it here.
 
-m4_define([version_date], "January 2020")
+m4_pattern_allow([AC_VERSION])
+m4_define([version_date], "May 2022")
 m4_define([version_major], 1)
-m4_define([version_minor], 6)
+m4_define([version_minor], 7)
 m4_define([version_micro], 0)
 m4_define([version_beta],  0)
 m4_define([version_rc],    0)
@@ -47,10 +48,8 @@ m4_define([version_scm],[m4_translit(m4_esyscmd([$(pwd)/evalrev . scm || echo]),
 m4_define([version_triplet],version_major.version_minor.version_micro)
 m4_append([version_triplet],version_scm)
 
-AC_PREREQ([2.52])
-AC_INIT([aircrack-ng],
-    [version_triplet],
-    [https://forum.aircrack-ng.org])
+AC_PREREQ([2.59])
+AC_INIT([aircrack-ng],[version_triplet],[https://github.com/aircrack-ng/aircrack-ng/discussions])
 
 #
 # Cross-Compilation
@@ -96,7 +95,8 @@ AM_PROG_AS
 PKG_PROG_PKG_CONFIG
 AM_PROG_CC_C_O
 AC_C_CONST
-AC_HEADER_STDC
+AC_PROG_EGREP
+
 AC_CHECK_HEADERS([locale.h stdio.h stdarg.h fcntl.h malloc.h stdlib.h string.h strings.h unistd.h sys/stat.h getopt.h sys/time.h sys/types.h dirent.h])
 
 #
@@ -156,7 +156,6 @@ PKG_CHECK_MODULES([CMOCKA], [cmocka], [
 # Extras, but needed
 #
 AIRCRACK_NG_LARGEFILE
-dnl AX_ADD_FORTIFY_SOURCE
 AIRCRACK_NG_PTHREAD
 AX_LIB_SOCKET_NSL
 AC_CHECK_LIB([dl], [dlopen], [ LIBS="$LIBS -ldl" ], [:])
@@ -171,11 +170,6 @@ CFLAGS="$saved_cflags"
 # Code Coverage Support
 #
 AIRCRACK_NG_CODE_COVERAGE
-
-#
-# Valgrind Support
-#
-AX_VALGRIND_CHECK
 
 #
 # Compiler set-up
@@ -230,7 +224,7 @@ LIBS="$opt_libs $LIBS"
 #
 AC_CONFIG_FILES([
 Makefile
-VERSION
+AC_VERSION
 
 include/aircrack-ng/version.h
 
@@ -324,6 +318,7 @@ ${PACKAGE} ${VERSION}
     Jemalloc:                    ${JEMALLOC}
     Pcap:                        ${PCAP_FOUND}
     Pcre:                        ${HAVE_PCRE}
+    Pcre2:                       ${HAVE_PCRE2} ${PCRE2_NOTE}
     Sqlite:                      ${HAVE_SQLITE3}
     Tcmalloc:                    ${TCMALLOC}
     Zlib:                        ${HAVE_ZLIB}

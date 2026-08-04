@@ -76,6 +76,7 @@ int64_t ftello64(FILE * fp);
 		struct tm * lt;                                                        \
 		time_t tc = time(NULL);                                                \
 		lt = localtime(&tc);                                                   \
+		REQUIRE(lt != NULL);                                                   \
 		printf("%02d:%02d:%02d  ", lt->tm_hour, lt->tm_min, lt->tm_sec);       \
 	}
 
@@ -94,6 +95,13 @@ int64_t ftello64(FILE * fp);
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct MAC_list * pMAC_t;
+struct MAC_list
+{
+	unsigned char mac[6];
+	pMAC_t next;
+};
 
 static const unsigned char ZERO[33] = "\x00\x00\x00\x00\x00\x00\x00\x00"
 									  "\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -158,7 +166,7 @@ static inline int str2mac(uint8_t * mac, const char * str)
 	REQUIRE(mac != NULL);
 	REQUIRE(str != NULL);
 
-	unsigned int macf[6];
+	unsigned int macf[6] = {0};
 
 	if (sscanf(str,
 			   "%x:%x:%x:%x:%x:%x",
@@ -185,6 +193,12 @@ int hexStringToArray(char * in,
 
 /// Return the mac address bytes (or null if it's not a mac address)
 int getmac(const char * macAddress, const int strict, unsigned char * mac);
+
+int addMAC(pMAC_t pMAC, unsigned char * mac);
+
+int getMACcount(pMAC_t pMAC);
+
+int flushMACs(pMAC_t pMAC);
 
 /// Read a line of characters inputted by the user
 int readLine(char line[], int maxlength);
@@ -392,6 +406,16 @@ static inline uintptr_t adds_uptr(uintptr_t a, uintptr_t b)
 	if (unlikely(c < a)) /* can only happen due to overflow */
 		c = -1;
 	return (c);
+}
+
+/// Saturated subtraction for unsigned, 64-bit integers.
+static inline uint64_t subs_u64(uint64_t x, uint64_t y)
+{
+	uint64_t res = x - y;
+
+	res &= -(res <= x); //-V732
+
+	return (res);
 }
 
 #ifdef __cplusplus

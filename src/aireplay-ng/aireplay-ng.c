@@ -1,7 +1,7 @@
 /*
  *  802.11 WEP replay & injection attacks
  *
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005 Christophe Devine
  *
  *  WEP decryption attack (chopchop) developed by KoreK
@@ -46,13 +46,11 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
-#include <sys/wait.h>
 #include <sys/time.h>
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <dirent.h>
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
@@ -60,16 +58,12 @@
 #include <errno.h>
 #include <time.h>
 #include <getopt.h>
-#include <assert.h>
+#include <math.h>
 
 #include <fcntl.h>
 #include <ctype.h>
 
 #include <limits.h>
-
-#include <netinet/in_systm.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
 
 #include "aircrack-ng/version.h"
 #include "aircrack-ng/support/pcap_local.h"
@@ -122,7 +116,7 @@
 static const char usage[] =
 
 	"\n"
-	"  %s - (C) 2006-2020 Thomas d\'Otreppe\n"
+	"  %s - (C) 2006-2022 Thomas d\'Otreppe\n"
 	"  https://www.aircrack-ng.org\n"
 	"\n"
 	"  usage: aireplay-ng <options> <replay interface>\n"
@@ -324,7 +318,7 @@ xor_keystream(unsigned char * ph80211, unsigned char * keystream, int len)
 
 static void my_read_sleep_cb(void)
 {
-	read_packet(_wi_in, h80211, sizeof(h80211), NULL);
+	(void) read_packet(_wi_in, h80211, sizeof(h80211), NULL);
 }
 
 static void send_fragments(unsigned char * packet,
@@ -574,7 +568,7 @@ static int do_attack_deauth(void)
 static int do_attack_fake_auth(void)
 {
 	time_t tt, tr;
-	struct timeval tv, tv2, tv3;
+	struct timeval tv, tv2 = {0}, tv3;
 
 	fd_set rfds;
 	int i, n, state, caplen, z;
@@ -583,7 +577,7 @@ static int do_attack_fake_auth(void)
 	int kas;
 	int tries;
 	int retry = 0;
-	int abort;
+	int should_abort;
 	int gotack = 0;
 	unsigned char capa[2];
 	int deauth_wait = 3;
@@ -635,7 +629,7 @@ static int do_attack_fake_auth(void)
 	memcpy(ctsbuf + 4, opt.r_bssid, 6);
 
 	tries = 0;
-	abort = 0;
+	should_abort = 0;
 	state = 0;
 	x_send = opt.npackets;
 	if (opt.npackets == 0) x_send = 4;
@@ -753,7 +747,7 @@ static int do_attack_fake_auth(void)
 
 						if (tries > 15)
 						{
-							abort = 1;
+							should_abort = 1;
 						}
 					}
 					else
@@ -764,11 +758,11 @@ static int do_attack_fake_auth(void)
 						}
 						else
 						{
-							abort = 1;
+							should_abort = 1;
 						}
 					}
 
-					if (abort)
+					if (should_abort)
 					{
 						printf(
 							"\nAttack was unsuccessful. Possible reasons:\n\n"
@@ -1112,9 +1106,7 @@ static int do_attack_fake_auth(void)
 		if ((((tv3.tv_sec * 1000000 - tv2.tv_sec * 1000000)
 			  + (tv3.tv_usec - tv2.tv_usec))
 			 > (100 * 1000))
-			&& (gotack > 0)
-			&& (gotack < packets)
-			&& (state == 3))
+			&& (gotack > 0) && (gotack < packets) && (state == 3))
 		{
 			PCT;
 			printf("Not enough acks, repeating...\n");
@@ -1639,6 +1631,7 @@ static int do_attack_arp_resend(void)
 	pfh_out.linktype = LINKTYPE_IEEE802_11;
 
 	lt = localtime((const time_t *) &tv.tv_sec);
+	REQUIRE(lt != NULL);
 
 	memset(strbuf, 0, sizeof(strbuf));
 	snprintf(strbuf,
@@ -2103,6 +2096,7 @@ static int do_attack_caffe_latte(void)
 	pfh_out.linktype = LINKTYPE_IEEE802_11;
 
 	lt = localtime((const time_t *) &tv.tv_sec);
+	REQUIRE(lt != NULL);
 
 	memset(strbuf, 0, sizeof(strbuf));
 	snprintf(strbuf,
@@ -2258,7 +2252,6 @@ static int do_attack_caffe_latte(void)
 				fclose(f_cap_out);
 				return (1);
 			}
-
 			if (caplen == 0) continue;
 		}
 		else
@@ -2589,6 +2582,7 @@ static int do_attack_migmode(void)
 	pfh_out.linktype = LINKTYPE_IEEE802_11;
 
 	lt = localtime((const time_t *) &tv.tv_sec);
+	REQUIRE(lt != NULL);
 
 	memset(strbuf, 0, sizeof(strbuf));
 	snprintf(strbuf,
@@ -3320,7 +3314,7 @@ static int do_attack_chopchop(void)
 	unsigned char b2 = 0xAA;
 
 	FILE * f_cap_out;
-	long nb_pkt_read;
+	//long nb_pkt_read;
 	unsigned long crc_mask;
 	unsigned char * chopped;
 
@@ -3514,7 +3508,7 @@ static int do_attack_chopchop(void)
 
 	memset(ticks, 0, sizeof(ticks));
 
-	nb_pkt_read = 0;
+	//nb_pkt_read = 0;
 	nb_pkt_sent = 0;
 	nb_bad_pkt = 0;
 	guess = 256;
@@ -3762,7 +3756,7 @@ static int do_attack_chopchop(void)
 
 		if (n == 0) continue;
 
-		nb_pkt_read++;
+		//nb_pkt_read++;
 
 		/* check if it's a deauth packet */
 
@@ -3944,6 +3938,7 @@ static int do_attack_chopchop(void)
 	pkh.len = caplen;
 
 	lt = localtime((const time_t *) &tv.tv_sec);
+	REQUIRE(lt != NULL);
 
 	memset(strbuf, 0, sizeof(strbuf));
 	snprintf(strbuf,
@@ -4033,7 +4028,9 @@ static int do_attack_chopchop(void)
 	float const delta_tt = (float) (time(NULL) - tt);
 	printf("\nCompleted in %lds (%0.2f bytes/s)\n\n",
 		   (long) delta_tt,
-		   (delta_tt != 0 ? (float) ((pkh.caplen - 6 - 24) / delta_tt) : 0.f));
+		   (fabsf(delta_tt) >= __FLT_EPSILON__
+				? (float) ((pkh.caplen - 6 - 24) / delta_tt)
+				: 0.f));
 
 	return (0);
 }
@@ -4239,6 +4236,11 @@ static int do_attack_fragment(void)
 			while (!gotit) // waiting for relayed packet
 			{
 				caplen = read_packet(_wi_in, packet, sizeof(packet), NULL);
+				if (caplen < 0 && errno == EINTR)
+					continue;
+				else if (caplen < 0)
+					break;
+
 				z = ((packet[1] & 3) != 3) ? 24 : 30;
 				if ((packet[0] & 0x80) == 0x80) /* QoS */
 					z += 2;
@@ -4308,8 +4310,7 @@ static int do_attack_fragment(void)
 				if (((tv2.tv_sec * 1000000UL - tv.tv_sec * 1000000UL)
 					 + (tv2.tv_usec - tv.tv_usec))
 						> (100 * 1000)
-					&& acksgot > 0
-					&& acksgot < packets) // wait 100ms for acks
+					&& acksgot > 0 && acksgot < packets) // wait 100ms for acks
 				{
 					PCT;
 					printf("Not enough acks, repeating...\n");
@@ -4424,6 +4425,11 @@ static int do_attack_fragment(void)
 			while (!gotit) // waiting for relayed packet
 			{
 				caplen = read_packet(_wi_in, packet, sizeof(packet), NULL);
+				if (caplen < 0 && errno == EINTR)
+					continue;
+				else if (caplen < 0)
+					break;
+
 				z = ((packet[1] & 3) != 3) ? 24 : 30;
 				if ((packet[0] & 0x80) == 0x80) /* QoS */
 					z += 2;
@@ -4490,8 +4496,7 @@ static int do_attack_fragment(void)
 				if (((tv2.tv_sec * 1000000UL - tv.tv_sec * 1000000UL)
 					 + (tv2.tv_usec - tv.tv_usec))
 						> (100 * 1000)
-					&& acksgot > 0
-					&& acksgot < packets) // wait 100ms for acks
+					&& acksgot > 0 && acksgot < packets) // wait 100ms for acks
 				{
 					PCT;
 					printf("Not enough acks, repeating...\n");
@@ -4583,6 +4588,11 @@ static int do_attack_fragment(void)
 			while (!gotit) // waiting for relayed packet
 			{
 				caplen = read_packet(_wi_in, packet, sizeof(packet), NULL);
+				if (caplen < 0 && errno == EINTR)
+					continue;
+				else if (caplen < 0)
+					break;
+
 				z = ((packet[1] & 3) != 3) ? 24 : 30;
 				if ((packet[0] & 0x80) == 0x80) /* QoS */
 					z += 2;
@@ -4648,8 +4658,7 @@ static int do_attack_fragment(void)
 				if (((tv2.tv_sec * 1000000 - tv.tv_sec * 1000000)
 					 + (tv2.tv_usec - tv.tv_usec))
 						> (100 * 1000)
-					&& acksgot > 0
-					&& acksgot < packets) // wait 100ms for acks
+					&& acksgot > 0 && acksgot < packets) // wait 100ms for acks
 				{
 					PCT;
 					printf("Not enough acks, repeating...\n");
@@ -4720,6 +4729,7 @@ static int do_attack_fragment(void)
 		}
 
 		lt = localtime((const time_t *) &tv.tv_sec);
+		REQUIRE(lt != NULL);
 
 		memset(strbuf, 0, sizeof(strbuf));
 		snprintf(strbuf,
@@ -4829,9 +4839,9 @@ static int tcp_test(const char * ip_str, const short port)
 	struct sockaddr_in s_in;
 	int packetsize = 1024;
 	unsigned char packet[packetsize];
-	struct timeval tv, tv2, tv3;
+	struct timeval tv, tv2 = {0}, tv3;
 	int caplen = 0;
-	int times[REQUESTS];
+	int times[REQUESTS] = {0};
 	int min, avg, max, len;
 	struct net_hdr nh;
 
@@ -5202,6 +5212,10 @@ static int do_attack_test(void)
 		while (1) // waiting for relayed packet
 		{
 			caplen = read_packet(_wi_in, packet, sizeof(packet), &ri);
+			if (caplen < 0 && errno == EINTR)
+				continue;
+			else if (caplen < 0)
+				break;
 
 			if (packet[0] == 0x50) // Is probe response
 			{
@@ -5354,7 +5368,10 @@ static int do_attack_test(void)
 			while (1) // waiting for relayed packet
 			{
 				caplen = read_packet(_wi_in, packet, sizeof(packet), &ri);
-				ALLEGE(caplen >= 0);
+				if (caplen < 0 && errno == EINTR)
+					continue;
+				else if (caplen < 0)
+					break;
 
 				if (packet[0] == 0x50) // Is probe response
 				{
@@ -6543,7 +6560,7 @@ int main(int argc, char * argv[])
 
 	dev.fd_rtc = -1;
 
-/* open the RTC device if necessary */
+	/* open the RTC device if necessary */
 
 #if defined(__i386__)
 #if defined(linux)

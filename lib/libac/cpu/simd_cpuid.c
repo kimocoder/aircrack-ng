@@ -47,6 +47,9 @@
 #include <sys/user.h>
 #include <sys/sysctl.h>
 #endif
+#if defined(__APPLE__) && defined(__aarch64__)
+#include <sys/sysctl.h>
+#endif
 #include <dirent.h>
 
 #include "aircrack-ng/cpu/simd_cpuid.h"
@@ -75,12 +78,14 @@ getRegister(const unsigned int val, const char from, const char to)
 	return (val & mask) >> from;
 }
 
-static void sprintcat(char * dest, const char * src, size_t len)
+#if defined(_X86) || defined(__arm__) || defined(__aarch64__)
+static void sprintcat(char * restrict dest, const char * restrict src, size_t len)
 {
-	if (strlen(dest) > 0) (void) strncat(dest, ",", len - strlen(dest) - 1);
+	if (*dest != '\0') (void) strncat(dest, ",", len - strlen(dest) - 1);
 
 	(void) strncat(dest, src, len - strlen(dest) - 1);
 }
+#endif
 
 int is_dir(const char * dir)
 {
@@ -142,6 +147,8 @@ int cpuid_simdsize(int viewmax)
 	if (hwcaps & (1 << 1)) // ASIMD
 		return 4;
 #endif
+#elif defined(__aarch64__) && !defined(HAS_AUXV)
+	return 4; // ASIMD is required on AARCH64
 #endif
 	(void) viewmax;
 
@@ -271,6 +278,8 @@ static char * cpuid_featureflags(void)
 	if ((hwcaps & (1 << 17)) || (hwcaps & (1 << 18)))
 		sprintcat((char *) &flags, "IDIV", sizeof(flags));
 #endif
+#elif defined(__aarch64__) && !defined(HAS_AUXV)
+	sprintcat((char *) &flags, "ASIMD", sizeof(flags));
 #endif
 	return strdup(flags);
 }
@@ -422,6 +431,9 @@ static char * cpuid_modelinfo(void)
 	int mib[] = {CTL_HW, HW_MODEL};
 	char modelbuf[64];
 	size_t len = sizeof(modelbuf);
+#elif defined(__APPLE__) && defined(__aarch64__)
+	char modelbuf[128];
+	size_t modelbuf_len = sizeof(modelbuf);
 #endif
 	char *pm = NULL, *model = NULL;
 
@@ -482,6 +494,11 @@ static char * cpuid_modelinfo(void)
 #elif __FreeBSD__
 	if (sysctl(mib, 2, modelbuf, &len, NULL, 0))
 		snprintf(modelbuf, sizeof(modelbuf), "Unknown");
+
+	pm = modelbuf;
+#elif defined(__APPLE__) && defined(__aarch64__)
+	if (sysctlbyname("machdep.cpu.brand_string", &modelbuf, &modelbuf_len, NULL, 0))
+		snprintf(modelbuf, sizeof(modelbuf), "Unknown Apple AARCH64");
 
 	pm = modelbuf;
 #endif
@@ -662,7 +679,7 @@ static unsigned int cpuid_x86_physical_cores(void)
 }
 #endif
 
-int cpuid_getinfo()
+int cpuid_getinfo(void)
 {
 	int cpu_count = get_nb_cpus();
 	float cpu_temp;

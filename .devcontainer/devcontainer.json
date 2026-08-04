@@ -1,0 +1,56 @@
+{
+  "name": "Aircrack-ng",
+  "dockerFile": "Dockerfile",
+  "privileged": true,
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined"
+  ],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/bin/bash"
+          },
+          "zsh": {
+            "path": "/usr/bin/zsh"
+          }
+        },
+        "editor.formatOnSave": true,
+        "clang-format.executable": "/usr/bin/clang-format",
+        "clang-format.fallbackStyle": "none",
+        "clang-format.assumeFilename": "${file}",
+        "clang-format.style": "file",
+        "editor.defaultFormatter": "ms-vscode.cpptools",
+        "clangd.path": "/usr/bin/clangd-14",
+        "C_Cpp.clang_format_fallbackStyle": "none",
+        "C_Cpp.clang_format_path": "/usr/bin/clang-format",
+        "C_Cpp.clang_format_style": "file",
+        "C_Cpp.formatting": "clangFormat"
+      },
+      "extensions": [
+        "ms-vscode-remote.remote-containers",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.cpptools",
+        "xaver.clang-format",
+        "fnando.linter",
+        "github.vscode-github-actions",
+        "ms-python.python"
+      ]
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest"
+    }
+  },
+  "postCreateCommand": "pre-commit install --install-hooks && sudo chown -R root:root /root",
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspace",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+  ]
+}

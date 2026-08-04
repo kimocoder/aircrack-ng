@@ -39,17 +39,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <err.h>
 
 #include "aircrack-ng/defs.h"
-#include "aircrack-ng/aircrack-ng.h"
 #include "aircrack-ng/version.h"
-#include "aircrack-ng/ptw/aircrack-ptw-lib.h"
 #include "aircrack-ng/osdep/osdep.h"
 #include "aircrack-ng/third-party/ieee80211.h"
+#include "aircrack-ng/support/ieee80211_compat.h"
 #include "aircrack-ng/crypto/crypto.h"
 #include "aircrack-ng/support/pcap_local.h"
 #include "aircrack-ng/support/common.h"

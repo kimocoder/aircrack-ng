@@ -1,7 +1,7 @@
 /*
  *  WEP Cloaking filtering
  *
- *  Copyright (C) 2008-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2008-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *
  *  Thanks to Alex Hernandez aka alt3kx for the hardware.
  *
@@ -69,7 +69,7 @@ static int _is_wep;
 static unsigned char _bssid[6];
 
 static int _options_drop_fragments = 0;
-static int _options_disable_retry = 0;
+//static int _options_disable_retry = 0;
 static int _options_disable_base_filter = 0;
 static int _options_assume_null_packets_uncloaked = 0;
 
@@ -467,7 +467,7 @@ static BOOLEAN read_packets(void)
 		if (_packet_elt_head->current->frame_type != FRAME_TYPE_DATA
 			&& _packet_elt_head->current->frame_type != FRAME_TYPE_MANAGEMENT)
 		{
-			// Don't care about the frame if it's a control or unknown frame).
+			// Don't care about the frame (if it's a control or unknown frame).
 			if (_packet_elt_head->current->frame_type != FRAME_TYPE_CONTROL)
 			{
 				// Unknown frame type, log it
@@ -503,10 +503,10 @@ static BOOLEAN read_packets(void)
 			_packet_elt_head->current->is_dropped = 1;
 		}
 
-// TODO: Get the speed from the packet if radiotap/prism header exist.
+		// TODO: Get the speed from the packet if radiotap/prism header exist.
 
-// TODO: Get also the channel from the headers (the sensor may inject
-//       cloaked frames on a channel is not the same as the AP)
+		// TODO: Get also the channel from the headers (the sensor may inject
+		//       cloaked frames on a channel is not the same as the AP)
 
 #ifdef DEBUG
 		printf("Retry bit: %d\n", _packet_elt_head->current->retry_bit);
@@ -560,7 +560,7 @@ static BOOLEAN read_packets(void)
 		}
 
 #ifdef DEBUG
-		printf("From DS: %d - ToDS: %d\n",
+		printf("FromDS: %d - ToDS: %d\n",
 			   _packet_elt_head->current->fromDS,
 			   _packet_elt_head->current->toDS);
 		printf("BSSID: %02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -667,7 +667,7 @@ static BOOLEAN read_packets(void)
 #endif
 		}
 		else
-		{ // Management packet (control packets were filtered out.
+		{ // Management packet (control packets were filtered out).
 			_packet_elt_head->current->iv[0] = _packet_elt_head->current->iv[1]
 				= _packet_elt_head->current->iv[2] = 0;
 			_packet_elt_head->current->key_index = 0;
@@ -829,7 +829,7 @@ current_packet_pointer_same_fromToDS_and_source(struct packet_elt * packet)
 	}
 	else if (packet->fromDS == 0 && packet->toDS == 0)
 	{
-		// Beacons (and some other packets) coming from the AP (both from and
+		// Beacons (and some other packets) coming from the AP (both fromDS and
 		// toDS are 0).
 		if (_packet_elt_head->current->fromDS == 1
 			&& _packet_elt_head->current->toDS == 0)
@@ -1101,7 +1101,7 @@ static int CFC_filter_signal(void)
 					// average signal
 					// We could play with POTENTIALLY_CLOAKED frame depending on
 					// the variation
-					// but currently, it's unloacked if inferior to the max
+					// but currently, it's uncloaked if inferior to the max
 					// allowed signal
 					_packet_elt_head->current->is_cloaked
 						= VALID_FRAME_UNCLOAKED;
@@ -1214,7 +1214,7 @@ static int CFC_filter_duplicate_iv(void)
 	{
 		if (_packet_elt_head->current->frame_type == FRAME_TYPE_DATA)
 		{
-			// In the array, there's as much elements as the number of possible
+			// In the array, there's as many elements as the number of possible
 			// IVs
 			// For each IV, increase by 1 the value of the IV position so that
 			// we can
@@ -1273,7 +1273,7 @@ static char * status_format(int status)
 	switch (status)
 	{
 		case VALID_FRAME_UNCLOAKED:
-			strncpy(ret, "uncloacked", len + 1);
+			strncpy(ret, "uncloaked", len + 1);
 			break;
 		case CLOAKED_FRAME:
 			strncpy(ret, "cloaked", len + 1);
@@ -1492,7 +1492,7 @@ static void usage(void)
 		"Airdecloak-ng", _MAJ, _MIN, _SUB_MIN, _REVISION, _BETA, _RC);
 	printf(
 		"\n"
-		"  %s - (C) 2008-2020 Thomas d\'Otreppe\n"
+		"  %s - (C) 2008-2022 Thomas d\'Otreppe\n"
 		"  https://www.aircrack-ng.org\n"
 		"\n"
 		"  usage: airdecloak-ng [options]\n"
@@ -1502,6 +1502,7 @@ static void usage(void)
 		"   Mandatory:\n"
 		"     -i <file>             : Input capture file\n"
 		"     --ssid <ESSID>        : ESSID of the network to filter\n"
+		"                             (not yet implemented)\n"
 		"        or\n"
 		"     --bssid <BSSID>       : BSSID of the network to filter\n"
 		"\n"
@@ -1532,17 +1533,18 @@ static void usage(void)
 		"and\n"
 		"                                 consecutive sequence number "
 		"(filtering is\n"
-		"                                  much more precise than using all "
+		"                                 much more precise than using all "
 		"these\n"
-		"                                  filters one by one).\n"
+		"                                 filters one by one).\n"
 		"     --null-packets        : Assume that null packets can be "
 		"cloaked.\n"
-		"     --disable-base_filter : Do not apply base filter.\n"
+		"                             (not yet implemented)\n"
+		"     --disable-base-filter : Do not apply base filter.\n"
 		//"     --disable-retry       : Disable retry check, don't care about
 		// retry bit.\n"
-		"     --drop-frag           : Drop fragmented packets\n"
+		"     --drop-frag           : Drop fragmented packets.\n"
 		"\n"
-		"     --help                : Displays this usage screen\n"
+		"     --help                : Displays this usage screen.\n"
 		"\n",
 		version_info);
 	free(version_info);
@@ -1583,6 +1585,7 @@ int main(int argc, char * argv[])
 			   {"help", 0, 0, 'h'},
 			   {"filter", 1, 0, 'f'},
 			   {"filters", 1, 0, 'f'},
+			   {"filtered", 1, 0, 'f'},
 			   {"null-packets", 0, 0, 'n'},
 			   {"null-packet", 0, 0, 'n'},
 			   {"null_packets", 0, 0, 'n'},
@@ -1593,10 +1596,8 @@ int main(int argc, char * argv[])
 			   {"drop-frag", 0, 0, 'd'},
 			   {"input", 1, 0, 'i'},
 			   {"cloaked", 1, 0, 'c'},
-			   {"filtered", 1, 0, 'f'},
 			   {0, 0, 0, 0}};
 
-		// option = getopt_long( argc, argv, "e:b:hf:nbrdi:",
 		option = getopt_long(
 			argc, argv, "e:b:hf:nbdi:c:o:u:", long_options, &option_index);
 
@@ -1704,20 +1705,21 @@ int main(int argc, char * argv[])
 				break;
 			case 'n':
 				_options_assume_null_packets_uncloaked = 1;
-				break;
-			case 'r':
-				_options_disable_retry = 1;
 				printf("'%c' option not yet implemented\n", option);
 				exit(EXIT_SUCCESS);
-				break;
+			/*case 'r':
+				_options_disable_retry = 1;
+				printf("'%c' option not yet implemented\n", option);
+				exit(EXIT_SUCCESS);*/
 			case 'e':
 				printf("'%c' option not yet implemented\n", option);
 				exit(EXIT_SUCCESS);
-				break;
 			case 'h':
 				usage();
 				exit(EXIT_SUCCESS);
-				break;
+			default:
+				usage();
+				exit(EXIT_FAILURE);
 		}
 	}
 
@@ -1727,37 +1729,6 @@ int main(int argc, char * argv[])
 		puts("Missing input file");
 		exit(EXIT_FAILURE);
 	}
-
-	// Add options (some are mandatory, some are optional).
-	/*
-		Mandatory:
-			-i file: input file
-			--ssid ESSID (or --essid or --ssid) or -b BSSID (or --bssid or --ap)
-
-		Optional:
-			-o <file>             : Output packets (valid) file (default:
-	   <src>-filtered.pcap)
-			-c <file>             : Output packets (cloaked) file (default:
-	   <src>-cloaked.pcap)
-			-u <file>             : Output packets (unknown/ignored) file
-	   (default: invalid_status.pcap)
-			-f (--filters/--filter)
-				Available filters:
-					* signal: Tries to filter based on the signal (AP never/is
-	   not supposed to moves thus ...)
-					* duplicate_sn: remove all duplicate SN
-					* duplicate_sn_ap/duplicate_sn_client: remove all duplicate
-	   SN from the AP/Client
-					* consecutive_sn: filter based on the fact that IV should be
-	   consecutive (only for AP).
-				Several filters can be used and you can choose the order of
-	   application of these filters
-					(that will impact the results).
-			--null-packets: Do not assume that null packets are not cloaked.
-			--no-base_filter: do not apply base filter.
-			--disable-retry: disable retry check, don't care about retry bit.
-			--drop-frag: Drop fragmented packets
-	*/
 
 	printf("Input file: %s\n", input_filename);
 	printf("BSSID: %s\n", input_bssid);
@@ -1850,6 +1821,12 @@ int main(int argc, char * argv[])
 	{
 		printf("Failed reading packets: %d\n", temp);
 		return (EXIT_FAILURE);
+	}
+
+	// If there aren't any usable frame, don't bother continuing
+	if (_packet_elt_head->nb_packets == 0) {
+		printf("Bye\n");
+		return EXIT_SUCCESS;
 	}
 
 	// 2. Go through the list and mark all cloaked packets

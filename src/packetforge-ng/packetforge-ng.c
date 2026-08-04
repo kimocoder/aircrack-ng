@@ -2,7 +2,7 @@
  *  802.11 ARP-request WEP packet forgery
  *  UDP, ICMP and custom packet forging developed by Martin Beck
  *
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005  Christophe Devine (arpforge)
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -44,8 +44,6 @@
 #include <string.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <time.h>
-#include <limits.h>
 #include <getopt.h>
 
 #include "aircrack-ng/defs.h"
@@ -53,10 +51,8 @@
 #include "aircrack-ng/support/pcap_local.h"
 #include "aircrack-ng/support/communications.h"
 #include "aircrack-ng/crypto/crypto.h"
-#include "aircrack-ng/osdep/byteorder.h"
 #include "aircrack-ng/third-party/ethernet.h"
 #include "aircrack-ng/support/common.h"
-#include "aircrack-ng/tui/console.h"
 
 #define ARP_REQ                                                                \
 	"\x08\x00\x02\x01\xBB\xBB\xBB\xBB\xBB\xBB\xCC\xCC\xCC\xCC\xCC\xCC"         \
@@ -83,7 +79,7 @@
 
 static const char usage[]
 	= "\n"
-	  "  %s - (C) 2006-2020 Thomas d\'Otreppe\n"
+	  "  %s - (C) 2006-2022 Thomas d\'Otreppe\n"
 	  "  Original work: Martin Beck\n"
 	  "  https://www.aircrack-ng.org\n"
 	  "\n"
@@ -675,12 +671,17 @@ static int read_prga_xor_ivs2(unsigned char ** dest, const char * file)
 	FILE * f;
 	int size;
 	struct ivs2_filehdr fivs2;
+	size_t file_sz = file != NULL ? strlen(file) : 0;
 
 	if (file == NULL) return (1);
-	if (*dest == NULL) *dest = (unsigned char *) malloc(1501);
+	if (*dest == NULL)
+	{
+		*dest = (unsigned char *) malloc(1501);
+		REQUIRE(*dest != NULL);
+	}
 
-	if (memcmp(file + (strlen(file) - 4), ".xor", 4) != 0
-		&& memcmp(file + (strlen(file) - 4), "." IVS2_EXTENSION, 4) != 0)
+	if (memcmp(file + (file_sz - 4), ".xor", 4) != 0
+		&& memcmp(file + (file_sz - 4), "." IVS2_EXTENSION, 4) != 0)
 	{
 		printf("Is this really a PRGA file: %s?\n", file);
 	}

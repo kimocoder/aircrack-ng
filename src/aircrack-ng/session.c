@@ -1,7 +1,7 @@
 /*
  *  Aircrack-ng session (load/restore).
  *
- *  Copyright (C) 2018-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2018-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -145,7 +145,7 @@ int ac_session_set_bssid(struct session * session, const char * str)
 	}
 
 	// Parse BSSID
-	unsigned int bssid[6];
+	unsigned int bssid[6] = {0};
 	int count = sscanf(str,
 					   "%02X:%02X:%02X:%02X:%02X:%02X",
 					   &bssid[0],
@@ -201,7 +201,8 @@ int ac_session_set_amount_arguments(struct session * session, const char * str)
 
 	// Parse amount of arguments
 	int nb_input_scanned = sscanf(str, "%d", &(session->argc));
-	if (nb_input_scanned != 1 || session->argc < SESSION_MIN_NBARG)
+	if (nb_input_scanned != 1 || session->argc < SESSION_MIN_NBARG
+		|| (sysconf(_SC_ARG_MAX) != -1 && session->argc > sysconf(_SC_ARG_MAX)))
 	{
 		// There should be at least 4 arguments:
 		// - Executable path (argv[0])
@@ -305,7 +306,8 @@ struct session * ac_session_load(const char * filename)
 
 	char * line;
 	int line_nr = 0;
-	while (1)
+	int arg_nr = -1;
+	while (arg_nr != ret->argc)
 	{
 		line = ac_session_getline(f);
 
@@ -341,7 +343,7 @@ struct session * ac_session_load(const char * filename)
 			}
 			default: // All the arguments
 			{
-				ret->argv[line_nr - SESSION_ARGUMENTS_LINE] = line;
+				ret->argv[arg_nr] = line;
 				temp = EXIT_SUCCESS;
 				break;
 			}
@@ -362,6 +364,7 @@ struct session * ac_session_load(const char * filename)
 		}
 
 		++line_nr;
+		arg_nr = line_nr - SESSION_ARGUMENTS_LINE;
 	}
 
 	fclose(f);
@@ -370,6 +373,8 @@ struct session * ac_session_load(const char * filename)
 		ac_session_free(&ret);
 		return (NULL);
 	}
+
+	ENSURE(arg_nr == ret->argc);
 
 	return (ret);
 }
@@ -459,8 +464,7 @@ int ac_session_save(struct session * s,
 					long long int nb_keys_tried)
 {
 	if (s == NULL || s->filename == NULL || s->working_dir == NULL
-		|| s->argc == 0
-		|| s->argv == NULL)
+		|| s->argc == 0 || s->argv == NULL)
 	{
 		return (-1);
 	}

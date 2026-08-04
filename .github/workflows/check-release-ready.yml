@@ -1,0 +1,221 @@
+name: Release readiness
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/check-release-ready.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/check-release-ready.yml'
+  workflow_dispatch:
+
+jobs:
+  release-ready:
+    runs-on: ubuntu-22.04
+    steps:
+      - 
+        name: Git Checkout
+        uses: actions/checkout@v4
+      -
+        name: Get last git tag
+        id: git
+        run: |
+          CUR_TAG=$(git ls-remote --tags https://github.com/aircrack-ng/aircrack-ng | awk -F/ '{print $3}' | grep -E '^[0-9]\.' | sort -V | tail -n 1)
+          echo "LAST=${CUR_TAG}" >> $GITHUB_OUTPUT
+          echo "Tag: ${CUR_TAG} - Date: ${TAG_DATE}"
+
+      -
+        name: Get Changelog information
+        id: changelog
+        run: |
+          LAST_VER=$(head -n 1 ChangeLog | awk '{print $2}')
+          echo "LAST_VER=${LAST_VER}" >> $GITHUB_OUTPUT
+          CHANGES_FROM=$(head -n 1 ChangeLog | awk '{print $6}' | awk -F\) '{print $1}')
+          echo "CHANGES_FROM=${CHANGES_FROM}" >> $GITHUB_OUTPUT
+          REL_DATE=$(head -n 1 ChangeLog | awk '{print $9 " " $10 " " $11}' | sed 's/.$//')
+          echo "REL_DATE=${REL_DATE}" >> $GITHUB_OUTPUT
+          ENTRIES=0
+          [ -n "$(head -n 2 ChangeLog | tail -n 1 | grep -E '^* ')" ] && ENTRIES=1
+          echo "ENTRIES=${ENTRIES}" >> $GITHUB_OUTPUT
+          echo "Last: ${LAST_VER} - From: ${CHANGES_FROM} - Date: ${REL_DATE} - Entries present:${ENTRIES}"
+
+      - name: Get info from configure
+        id: configure
+        run: |
+          VERSION_MAJOR=$(grep 'm4_define(\[version_major\],' configure.ac | awk '{print $2}' | awk -F\) '{print $1}')
+          VERSION_MINOR=$(grep 'm4_define(\[version_minor\],' configure.ac | awk '{print $2}' | awk -F\) '{print $1}')
+          VERSION_MICRO=$(grep 'm4_define(\[version_micro\],' configure.ac | awk '{print $2}' | awk -F\) '{print $1}')
+          if [ "${VERSION_MICRO}" -gt 0 ]; then
+            echo "VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${VERSION_MAJOR}.${VERSION_MINOR}" >> $GITHUB_OUTPUT
+          fi
+          VERSION_DATE=$(grep 'm4_define(\[version_date\],' configure.ac | awk -F\" '{print $2}')
+          echo "VERSION_DATE=${VERSION_DATE}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO} - Date: ${VERSION_DATE}"
+
+      -
+        name: Get copyright dates in some tools
+        id: copyright
+        run: |
+          set -e
+          for tool in airodump-ng aircrack-ng airbase-ng aireplay-ng; do
+            echo "Checking ${tool}"
+            LICENSE=$(grep Copyright src/${tool}/${tool}.c | grep $(date +%Y) || true)
+            HELP=$(grep ' - (C) ' src/${tool}/${tool}.c | grep $(date +%Y) || true)
+            if [ -z "${LICENSE}" ] || [ -z "${HELP}" ]; then
+              echo "${tool}=0" >> $GITHUB_OUTPUT
+            else
+              echo "${tool}=1" >> $GITHUB_OUTPUT
+            fi
+            echo "- ${tool}: ${LICENSE} --- ${HELP}"
+          done
+          set +e
+      -
+        name: Check for iw update
+        id: iw
+        run: |
+          IW_URL=$(grep -E '^IW_SOURCE=' scripts/airmon-ng.linux | awk -F\" '{print $2}' | xargs dirname)
+          wget ${IW_URL} -O index.html
+          CUR_IW=$(grep '<a href="iw' index.html | grep 'xz' | awk -F\" '{print $2}' | sort -V | tail -n 1)
+
+          AIRMON_IW_FILENAME=$(grep -E '^IW_SOURCE=' scripts/airmon-ng.linux | awk -F\" '{print $2}' | xargs basename)
+
+          if [ "${CUR_IW}" = "${AIRMON_IW_FILENAME}" ]; then
+            echo "update=0" >> $GITHUB_OUTPUT
+          else
+            echo "update=1" >> $GITHUB_OUTPUT
+          fi
+          rm -f index.html
+      -
+        name: Check for hostapd updates
+        id: hostapd
+        run: |
+          wget https://w1.fi/hostapd/
+          LATEST_HOSTAPD=$(grep '.tar.gz' index.html | awk -F\" '{print $2}' | xargs basename)
+          README_HOSTAPD=$(grep -E '^tar' patches/wpe/hostapd-wpe/README.md | awk '{print $3}' | sed 's/\r//')
+          FILE_HOSTAPD=$(ls -1 patches/wpe/hostapd-wpe/ | grep hostapd)
+          FILE_HOSTAPD=${FILE_HOSTAPD%-wpe.patch}
+
+          if [ "${LATEST_HOSTAPD}" = "${README_HOSTAPD}" ]; then
+            echo "readme=0" >> $GITHUB_OUTPUT
+          else
+            echo "readme=1" >> $GITHUB_OUTPUT
+          fi
+
+          if [ "${LATEST_HOSTAPD}" = "${FILE_HOSTAPD}.tar.gz" ]; then
+            echo "file=0" >> $GITHUB_OUTPUT
+          else
+            echo "file=1" >> $GITHUB_OUTPUT
+          fi
+          rm -f index.html
+      - 
+        name: Check for freeradius updates
+        id: freeradius
+        run: |
+          wget https://github.com/FreeRADIUS/freeradius-server/releases.atom
+          LATEST=$(grep '<title>' releases.atom | grep -v Release | sort -V | tail -n 1 | awk -F\> '{print $2}' | awk -F\< '{print $1}')
+          # freeradius-server-${VERSION}-wpe.diff
+          FR_FILENAME=$(ls -1 patches/wpe/freeradius-wpe/ | grep freeradius)
+          README=$(grep -i 'updated patch' patches/wpe/freeradius-wpe/README.md | awk '{print $5}')
+
+          if [ "freeradius-server-${LATEST}-wpe.diff" = "${FR_FILENAME}" ]; then
+            echo "file=0" >> $GITHUB_OUTPUT
+          else
+            echo "file=1" >> $GITHUB_OUTPUT
+          fi
+
+          if [ "${LATEST}" = "${README}" ]; then
+            echo "readme=0" >> $GITHUB_OUTPUT
+          else
+            echo "readme=1" >> $GITHUB_OUTPUT
+          fi
+          rm releases.atom
+      -
+        name: Check all the things
+        run: |
+          DO_FAIL=0
+          if [ "${{steps.changelog.outputs.LAST_VER}}" = "${{steps.git.outputs.LAST}}" ]; then
+            echo "[!] Changelog: missing new version"
+            DO_FAIL=1
+          fi
+          if [ "${{steps.changelog.outputs.CHANGES_FROM}}" != "${{steps.git.outputs.LAST}}" ]; then
+            echo "[!] Changelog: Invalid 'changes from' version"
+            DO_FAIL=1
+          fi
+          if [ "${{steps.changelog.outputs.ENTRIES}}" -eq 0 ]; then
+            echo '[!] Changelog: Missing entries'
+            DO_FAIL=1
+          fi
+
+          date --date="${{steps.changelog.outputs.REL_DATE}}" >/dev/null 2>&1
+          if [ $? -ne 0 ]; then
+            echo "[!] Changelog: Invalid release date"
+            DO_FAIL=1
+          fi
+
+          date --date="1 ${{steps.configure.outputs.VERSION_DATE}}" >/dev/null 2>&1
+          if [ $? -ne 0 ]; then
+            echo "[!] Configure: Invalid release date"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.configure.outputs.VERSION }}" = "${{steps.git.outputs.LAST}}" ]; then
+            echo "[!] Version and date in configure.ac must be updated"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.copyright.outputs.airodump-ng }}" -eq 0 ]; then
+            echo "[!] Missing copyrights in airodump-ng license/help screen"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.copyright.outputs.aircrack-ng }}" -eq 0 ]; then
+            echo "[!] Missing copyrights in aircrack-ng license/help screen"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.copyright.outputs.airbase-ng }}" -eq 0 ]; then
+            echo "[!] Missing copyrights in airbase-ng license/help screen"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.copyright.outputs.aireplay-ng }}" -eq 0 ]; then
+            echo "[!] Missing copyrights in aireplay-ng license/help screen"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.iw.outputs.update }}" -eq 1 ]; then
+            echo "[!] Airmon-ng: An updated version of iw is available"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.hostapd.outputs.readme}}" = '1' ]; then
+            echo "[!] Hostapd-WPE: README.md needs an update"
+            DO_FAIL=1
+          fi
+          if [ "${{steps.hostapd.outputs.file}}" = '1' ]; then
+            echo "[!] Hostapd-WPE: patch needs an update"
+            DO_FAIL=1
+          fi
+
+          if [ "${{steps.freeradius.outputs.readme}}" = '1' ]; then
+            echo "[!] Freeradius-WPE: README.md needs an update"
+            DO_FAIL=1
+          fi
+          if [ "${{steps.freeradius.outputs.file}}" = '1' ]; then
+            echo "[!] Freeradius-WPE: patch needs an update"
+            DO_FAIL=1
+          fi
+
+          [ ${DO_FAIL} -eq 1 ] && exit 1
+
+  build-other-linux:
+    needs: release-ready
+    uses: ./.github/workflows/manual.yml
+
+  build-gentoo:
+    needs: release-ready
+    uses: ./.github/workflows/gentoo.yml

@@ -1,0 +1,403 @@
+name: Windows CI
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - apparmor/**
+      - contrib/**
+      - manpages/**
+      - patches/**
+      - '.coverityignore'
+      - '.github/workflows/gentoo.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/almalinux.yml'
+      - '.github/workflows/alpine.yml'
+      - '.github/workflows/check-actions-updates.yml'
+      - '.github/workflows/check-release-ready.yml'
+      - '.github/workflows/codespell.yml'
+      - '.github/workflows/coverity.yml'
+      - '.github/workflows/devcontainer.yml'
+      - '.github/workflows/docker.yml'
+      - '.github/workflows/docker-release.yml'
+      - '.github/workflows/dragonflybsd.yml'
+      - '.github/workflows/freebsd.yml'
+      - '.github/workflows/gcc.yml'
+      - '.github/workflows/irc.yml'
+      - '.github/workflows/kali.yml'
+      - '.github/workflows/linux.yml'
+      - '.github/workflows/linux-pcre.yml'
+      - '.github/workflows/macos.yml'
+      - '.github/workflows/manual.yml'
+      - '.github/workflows/markdown-link.yml'
+      - '.github/workflows/netbsd.yml'
+      - '.github/workflows/openbsd.yml'
+      - '.github/workflows/pvs-studio.yml'
+      - '.github/workflows/scanbuild.yml'
+      - '.github/workflows/style.yml'
+      - '.vscode/**'
+      - '.devcontainer/**'
+      - '.clang-format'
+      - '.editorconfig'
+      - '.gitignore'
+      - '.pre-commit-config.yaml'
+      - 'AC_VERSION.in'
+      - 'AUTHORS'
+      - 'centos_autotools.sh'
+      - 'ChangeLog'
+      - 'docker_package_install.sh'
+      - 'Dockerfile'
+      - 'Dockerfile.release'
+      - 'INSTALLING'
+      - 'LICENSE'
+      - 'LICENSE.OpenSSL'
+      - 'README'
+      - 'README.md'
+      - 'SECURITY.md'
+      - 'scripts/airmon-ng.*'
+
+  pull_request:
+    branches: [ master ]
+    paths-ignore:
+      - apparmor/**
+      - contrib/**
+      - manpages/**
+      - patches/**
+      - '.coverityignore'
+      - '.github/workflows/gentoo.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/almalinux.yml'
+      - '.github/workflows/alpine.yml'
+      - '.github/workflows/check-actions-updates.yml'
+      - '.github/workflows/check-release-ready.yml'
+      - '.github/workflows/codespell.yml'
+      - '.github/workflows/coverity.yml'
+      - '.github/workflows/devcontainer.yml'
+      - '.github/workflows/docker.yml'
+      - '.github/workflows/docker-release.yml'
+      - '.github/workflows/dragonflybsd.yml'
+      - '.github/workflows/freebsd.yml'
+      - '.github/workflows/gcc.yml'
+      - '.github/workflows/irc.yml'
+      - '.github/workflows/kali.yml'
+      - '.github/workflows/linux.yml'
+      - '.github/workflows/linux-pcre.yml'
+      - '.github/workflows/macos.yml'
+      - '.github/workflows/manual.yml'
+      - '.github/workflows/markdown-link.yml'
+      - '.github/workflows/netbsd.yml'
+      - '.github/workflows/openbsd.yml'
+      - '.github/workflows/pvs-studio.yml'
+      - '.github/workflows/scanbuild.yml'
+      - '.github/workflows/style.yml'
+      - '.vscode/**'
+      - '.devcontainer/**'
+      - '.clang-format'
+      - '.editorconfig'
+      - '.gitignore'
+      - '.pre-commit-config.yaml'
+      - 'AC_VERSION.in'
+      - 'AUTHORS'
+      - 'centos_autotools.sh'
+      - 'ChangeLog'
+      - 'docker_package_install.sh'
+      - 'Dockerfile'
+      - 'Dockerfile.release'
+      - 'INSTALLING'
+      - 'LICENSE'
+      - 'LICENSE.OpenSSL'
+      - 'README'
+      - 'README.md'
+      - 'SECURITY.md'
+      - 'scripts/airmon-ng.*'
+
+env:
+  CHERE_INVOKING: 1
+  LANG: en_US.UTF-8
+  TZ: UTC
+
+jobs:
+  cygwin_64bit:
+    runs-on: windows-latest
+
+    steps:
+      - run: git config --global core.autocrlf input
+      - run: git config --global core.eol lf
+      - uses: actions/checkout@v4
+
+      # Caching Cygwin fails due to /dev files and symlinks, sad :(
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: |
+            /cygdrive/c/tools/cygwin/home/**/.ccache
+            /cygdrive/c/tools/cygwin/home/**/AirPcap_Devpack_4_1_1_1838.zip
+          key: ${{ runner.os }}-cygwin-64bit-${{ hashFiles('.github/workflows/windows.yml') }}
+          restore-keys: ${{ runner.os }}-cygwin-64bit-
+
+      - name: Set up Cygwin
+        uses: cygwin/cygwin-install-action@v4
+        with:
+          platform: x64
+          install-dir: C:\tools\cygwin
+          packages: >-
+            autoconf automake bison gcc-core gcc-g++ mingw-runtime mingw-binutils mingw-gcc-core
+            mingw-gcc-g++ mingw-pthreads mingw-w32api libtool make python gettext-devel gettext
+            intltool libiconv pkg-config git wget curl libpcre2-devel libssl-devel libsqlite3-devel
+            zlib-devel unzip zip rsync expect libhwloc-devel ccache cmocka
+
+      - name: Create home dir
+        run: |
+          C:\tools\cygwin\bin\bash.exe --login -c 'env'
+
+      - name: Find Cygwin path to workspace
+        id: cygwin
+        run: |
+          New-Variable bash -Value "C:\tools\cygwin\bin\bash.exe" -Option Constant
+          $unix_path = (& $bash --login -e -c "cygpath '${env:GITHUB_WORKSPACE}'")
+          echo "unix_path=${unix_path}" >> $GITHUB_OUTPUT
+
+      - name: Ccache stats before builds
+        run: |
+          C:\tools\cygwin\bin\bash.exe -e -l -c "ccache -s"
+
+      - name: Download AirPcap sources
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          C:\tools\cygwin\bin\bash.exe -e -l -c "cd ~ && curl -RLO https://dl.aircrack-ng.org/AirPcap_Devpack_4_1_1_1838.zip"
+
+      - name: Copy cached AirPcap sources
+        run: |
+          C:\tools\cygwin\bin\bash.exe -e -l -c "cp -vfp ~/AirPcap_Devpack_4_1_1_1838.zip ."
+
+      - name: Verify digest of AirPcap sources
+        shell: pwsh
+        run: |
+          $hashFromFile = Get-FileHash -Path "AirPcap_Devpack_4_1_1_1838.zip" -Algorithm SHA256
+          if ($hashFromFile.Hash -ne "86dcde46603cd1229245263499ef9cb4e43ee66cd7219605d30095562888da14") {
+            Write-Host "AirPcap failed digest check." -ForegroundColor Red
+            $hashFromFile | Format-List
+            Break
+          }
+
+      - name: Decompress AirPcap sources
+        run: |
+          C:\tools\cygwin\bin\bash.exe -e -l -c "7z -y x AirPcap_Devpack_4_1_1_1838.zip"
+
+      - name: Generating AirPcap 64-bit linker files
+        run: |
+          C:\tools\cygwin\bin\bash.exe -e -l -c "cp -vf Airpcap_Devpack/bin/x64/airpcap.dll /cygdrive/c/Windows/System"
+          C:\tools\cygwin\bin\bash.exe -e -l -c "dlltool -D Airpcap_Devpack/bin/x64/airpcap.dll -d build/airpcap.dll.def -l Airpcap_Devpack/bin/x64/libairpcap.dll.a"
+
+      - name: Build 64-bit w/o AirPcap
+        env:
+          CFLAGS: "-O3 -mtune=opteron -DNDEBUG"
+          LDFLAGS: "-Wl,--enable-auto-image-base"
+        run: |
+          New-Variable bash -Value "C:\tools\cygwin\bin\bash.exe" -Option Constant
+          echo @"
+            CPUS=`$((`$(grep -c processor /proc/cpuinfo) * 3 / 2))
+            export PATH="/usr/lib/ccache:`$PATH"
+            export CC="ccache gcc"
+            export CXX="ccache g++"
+            echo "::group::make distclean"
+            make distclean || :
+            echo "::endgroup::"
+            echo "::group::autoreconf"
+            autoreconf -vi
+            echo "::endgroup::"
+            echo "::group::configure"
+            mkdir 64bit-no-airpcap
+            cd 64bit-no-airpcap
+            ../configure --host=x86_64-pc-cygwin --target=x86_64-pc-cygwin --without-opt --with-experimental --enable-win32-portable --enable-maintainer-mode
+            echo "::endgroup::"
+            echo "::group::build"
+            make -j `${CPUS}
+            echo "::endgroup::"
+            echo "::group::run tests"
+            make -j `${CPUS} check || { find . -name 'test-suite.log' -exec cat {} ';' && exit 1; }
+            echo "::endgroup::"
+            cd ..
+          "@ | & $bash --login -o errexit -o nounset -o pipefail -o igncr
+        shell: pwsh
+
+      - name: Build 64-bit w/AirPcap
+        env:
+          CFLAGS: "-O3 -mtune=opteron -DNDEBUG"
+          LDFLAGS: "-Wl,--enable-auto-image-base"
+        run: |
+          New-Variable bash -Value "C:\tools\cygwin\bin\bash.exe" -Option Constant
+          echo @"
+            CPUS=`$((`$(grep -c processor /proc/cpuinfo) * 3 / 2))
+            export PATH="/usr/lib/ccache:`$PATH"
+            export CC="ccache gcc"
+            export CXX="ccache g++"
+            echo "::group::make distclean"
+            make distclean || :
+            echo "::endgroup::"
+            echo "::group::autoreconf"
+            autoreconf -vi
+            echo "::endgroup::"
+            echo "::group::configure"
+            mkdir 64bit
+            cd 64bit
+            ../configure --host=x86_64-pc-cygwin --target=x86_64-pc-cygwin --without-opt --with-experimental --enable-win32-portable --enable-maintainer-mode --with-airpcap=${{ steps.cygwin.outputs.unix_path }}
+            echo "::endgroup::"
+            echo "::group::build"
+            make -j `${CPUS}
+            echo "::endgroup::"
+            echo "::group::run tests"
+            make -j `${CPUS} check || { find . -name 'test-suite.log' -exec cat {} ';' && exit 1; }
+            echo "::endgroup::"
+            echo "::group::gather packaging components"
+            echo '>> Removing symbolic links that break Windows zip/tar'
+            find . -type l -print -delete
+            echo '>> Create deployment folder'
+            mkdir -p dist/bin/64bit
+            echo '>> Resolving run-time items for deployment'
+            find . -path "*/.libs" -print0 | xargs -0I [] -n 1 find [] \( -name "*.exe" -o -name "*.dll" \) -exec cp -p {} "dist/bin/64bit" ';'
+            # AirPcap DLLs
+            cp -vfp "../Airpcap_Devpack/bin/x64/airpcap.dll" "dist/bin/64bit"
+            # Cygwin License
+            cp -vfp /usr/share/doc/Cygwin/CYGWIN_LICENSE "dist/LICENSE.Cygwin"
+            # gather dependencies of Cygwin
+            FILES="cygcrypto-1.1.dll cyghwloc-15.dll cyggcc_s-1.dll cyggcc_s-seh-1.dll cygpcre2-8-0.dll cygsqlite3-0.dll cygstdc++-6.dll cygwin1.dll cygz.dll cygxml2-2.dll cyglzma-5.dll cygiconv-2.dll"
+            for FILE in `$FILES; do
+              cp -vfp "/cygdrive/c/tools/cygwin/bin/`$FILE" "dist/bin/64bit" || :
+            done
+            echo "::endgroup::"
+            cd ..
+          "@ | & $bash --login -o errexit -o nounset -o pipefail -o igncr
+        shell: pwsh
+
+      - name: Ccache stats after builds
+        run: |
+          C:\tools\cygwin\bin\bash.exe -e -l -c "ccache -s"
+
+      - name: Archive 64-bit artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: 64bit
+          path: |
+            64bit
+            !64bit/**/*.a
+            !64bit/**/*.la
+            !64bit/**/*.lib
+            !64bit/**/*.o
+            !64bit/**/*.lo
+            !64bit/**/*.obj
+
+  gui:
+    runs-on: windows-2022
+
+    steps:
+      - run: git config --global core.autocrlf input
+      - run: git config --global core.eol lf
+
+      - uses: actions/checkout@v4
+
+      - name: Checkout GUI source code
+        shell: pwsh
+        run: |
+          git clone --no-checkout --depth 1 --single-branch --branch Windows https://github.com/aircrack-ng/aircrack-ng.git gui
+          Push-Location gui
+          git reset --hard
+          Pop-Location
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.1
+
+      - name: Build
+        shell: pwsh
+        run: |
+          Push-Location gui/GUI
+          msbuild Aircrack-ng.sln /p:Configuration=Release /p:Platform="Any CPU"
+          Pop-Location
+
+      - name: Archive GUI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui
+          path: |
+            gui
+            !gui/**/.git*
+            !gui/**/obj
+
+  package:
+    runs-on: windows-latest
+    needs: [cygwin_64bit, gui]
+
+    steps:
+      - run: git config --global core.autocrlf input
+      - run: git config --global core.eol lf
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Cygwin
+        uses: cygwin/cygwin-install-action@v4
+        with:
+          platform: x64
+          install-dir: C:\tools\cygwin
+          packages: >-
+            git unzip zip rsync
+
+      - name: Create home dir
+        run: |
+          C:\tools\cygwin\bin\bash.exe --login -c 'env'
+
+      - name: Find Cygwin path to workspace
+        id: cygwin
+        run: |
+          New-Variable bash -Value "C:\tools\cygwin\bin\bash.exe" -Option Constant
+          $unix_path = (& $bash --login -e -c "cygpath '${env:GITHUB_WORKSPACE}'")
+          echo "unix_path=${unix_path}" >> $GITHUB_OUTPUT
+
+      - name: Download Cygwin 64-bit artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: 64bit
+          path: 64bit
+
+      - name: Download GUI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: gui
+          path: gui
+
+      - name: Creating a package archive
+        shell: pwsh
+        run: |
+          New-Variable bash -Value "C:\tools\cygwin\bin\bash.exe" -Option Constant
+          & $bash -e -l -c "git config --global --add safe.directory /cygdrive/d/a/aircrack-ng/aircrack-ng"
+          $REV = (& $bash -e -l -c "./evalrev")
+          $env:DIST = "aircrack-ng-$REV-win"
+          & $bash -e -l -c "git archive --format=tar --prefix=`"$env:DIST/`" HEAD | /bin/tar xf -"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host -ForegroundColor Red "Failed to create pristine sources!"
+            Break
+          }
+          echo @"
+            mkdir -p "$env:DIST/bin"
+            mkdir -p "$env:DIST/bin/64bit"
+
+            cp -pr "gui/GUI/Aircrack-ng/bin/Release/Aircrack-ng GUI.exe" $env:DIST/bin || ls -laR
+            rm -fr "gui/GUI/Aircrack-ng/bin" "gui/GUI/Aircrack-ng/obj"
+            rsync -a gui/ "$env:DIST/src"
+            rsync -a 64bit/dist/ "$env:DIST"
+
+            find "$env:DIST" -name "test-*.exe" -print -delete
+            rm -fr "$env:DIST/src/.git" "$env:DIST/.gitignore" "$env:DIST/appveyor.yml" "$env:DIST/.travis.yml" "$env:DIST/README.md" "$env:DIST/.github" "$env:DIST/patches" "$env:DIST/apparmor"
+            zip -o -v -9 -r "$env:DIST.zip" "$env:DIST"
+            ( cat README; echo; echo . ) | zip -z "$env:DIST.zip"
+            exit 0
+          "@ | & $bash --login -o errexit -o nounset -o pipefail -o igncr
+
+      - name: Save package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            aircrack-ng-*-win.zip

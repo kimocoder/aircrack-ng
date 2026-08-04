@@ -65,9 +65,11 @@
 
 #include <limits.h>
 
+#if defined(linux)
 #include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#endif
 
 #include "aircrack-ng/defs.h"
 #include "aircrack-ng/version.h"
@@ -133,7 +135,7 @@
 static const char usage[] =
 
 	"\n"
-	"  %s - (C) 2008-2020 Thomas d\'Otreppe\n"
+	"  %s - (C) 2008-2022 Thomas d\'Otreppe\n"
 	"  https://www.aircrack-ng.org\n"
 	"\n"
 	"  usage: tkiptun-ng <options> <replay interface>\n"
@@ -565,7 +567,7 @@ static int build_arp_request(unsigned char * packet, int * length, int toDS)
 	*length += 8;
 
 	memcpy(buf, packet + 26, (*length) - 26);
-	memcpy(packet + 26 + 8, buf, (*length) - 26);
+	memcpy(packet + 26 + 8, buf, (*length) - 26); //-V512
 
 	if (toDS)
 		memcpy(packet + 26,
@@ -1310,7 +1312,7 @@ static int do_attack_tkipchop(unsigned char * src_packet, int src_packet_len)
 	unsigned char rc4key[16], keystream[4096];
 
 	FILE * f_cap_out;
-	long nb_pkt_read;
+	//long nb_pkt_read;
 	unsigned long crc_mask;
 	unsigned char * chopped;
 
@@ -1515,7 +1517,7 @@ static int do_attack_tkipchop(unsigned char * src_packet, int src_packet_len)
 
 	memset(ticks, 0, sizeof(ticks));
 
-	nb_pkt_read = 0;
+	//nb_pkt_read = 0;
 	nb_pkt_sent = 0;
 	nb_bad_pkt = 0;
 	guess = 256;
@@ -1790,7 +1792,7 @@ static int do_attack_tkipchop(unsigned char * src_packet, int src_packet_len)
 		}
 		if (n == 0) continue;
 
-		nb_pkt_read++;
+		//nb_pkt_read++;
 
 		/* check if it's a deauth packet */
 
@@ -2135,7 +2137,7 @@ static int do_attack_tkipchop(unsigned char * src_packet, int src_packet_len)
 		return (1);
 	}
 
-	n = pkh.caplen + 8 - 26 - 8;
+	n = pkh.caplen - 26;
 
 	if (fwrite(chopped + 26 + 8, n, 1, f_cap_out) != 1)
 	{
@@ -2562,7 +2564,7 @@ int main(int argc, char * argv[])
 			case 'p':
 
 				memset(lopt.psk, 0, sizeof(lopt.psk));
-				if (strlen(optarg) < 8 || strlen(optarg) > 63)
+				if (strlen(optarg) < 8 || strlen(optarg) > 63) //-V804
 				{
 					printf("PSK with invalid length specified [8-64].\n");
 					printf("\"%s --help\" for help.\n", argv[0]);
@@ -2633,7 +2635,7 @@ int main(int argc, char * argv[])
 
 	dev.fd_rtc = -1;
 
-/* open the RTC device if necessary */
+	/* open the RTC device if necessary */
 
 #if defined(__i386__)
 #if defined(linux)
@@ -2854,7 +2856,7 @@ int main(int argc, char * argv[])
 
 	if (!lopt.got_pmk && lopt.got_psk && strlen(opt.r_essid) > 1)
 	{
-		calc_pmk(lopt.psk, opt.r_essid, lopt.pmk);
+		calc_pmk((uint8_t *) lopt.psk, (uint8_t *) opt.r_essid, lopt.pmk);
 		PCT;
 		printf("PSK: %s\n", lopt.psk);
 		PCT;

@@ -1,7 +1,7 @@
 /*
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2006-2009 Martin Beck <martin.beck2@gmx.de>
- *  Copyright (C) 2018-2020 Joseph Benden <joe@benden.us>
+ *  Copyright (C) 2018-2022 Joseph Benden <joe@benden.us>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -50,6 +50,7 @@
 #include <aircrack-ng/osdep/osdep.h>
 #include <aircrack-ng/support/common.h>
 #include <aircrack-ng/third-party/ieee80211.h>
+#include <aircrack-ng/support/ieee80211_compat.h>
 
 /* Tagged parameters in beacon-frames */
 #define MGNT_PAR_SSID 0x00

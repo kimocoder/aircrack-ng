@@ -1,0 +1,52 @@
+name: Coverity Scan
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */12 * * *"
+
+jobs:
+  coverity:
+    runs-on: ubuntu-22.04
+    steps:
+      - 
+        name: Git Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      -
+        name: Compare revision on Coverity Scan and git
+        id: compare
+        run: |
+          wget https://scan.coverity.com/projects/aircrack-ng
+          COV_REV=$(grep '<p>Version:' aircrack-ng | awk '{print $2}' | cut -b 1-30)
+          echo "Coverity revision: ${COV_REV}"
+          [ -z "${COV_REV}" ] && exit 1
+
+          CUR_REV=$(git rev-parse HEAD | cut -b 1-30)
+          echo "Current git revision: ${CUR_REV}"
+
+          SKIP=false
+          if [ ${COV_REV} == ${CUR_REV} ] ||
+             [ -z "$(git diff --name-only ${COV_REV}..HEAD -- . | grep -v -f .coverityignore | grep -v coverityignore)" ]; then
+             SKIP=true
+          fi
+          echo "skip=${SKIP}" >> $GITHUB_OUTPUT
+      -
+        name: Prepare build
+        if: steps.compare.outputs.skip == 'false'
+        run: |
+          autoreconf -vif
+          ./configure --with-experimental --enable-maintainer-mode
+          make clean
+      -
+        name: Build and upload to Coverity Scan
+        uses: vapier/coverity-scan-action@v1
+        if: steps.compare.outputs.skip == 'false'
+        with:
+          project: Aircrack-ng
+          command: make check
+          email: ${{ secrets.COVERITY_SCAN_EMAIL }}
+          token: ${{ secrets.COVERITY_SCAN_TOKEN }}
+          version: ${{ github.sha }}
+          description: "Git revision: ${{ github.sha }}"

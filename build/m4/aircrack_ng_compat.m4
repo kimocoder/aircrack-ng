@@ -1,6 +1,6 @@
 dnl Aircrack-ng
 dnl
-dnl Copyright (C) 2020 Joseph Benden <joe@benden.us>
+dnl Copyright (C) 2020-2022 Joseph Benden <joe@benden.us>
 dnl
 dnl Autotool support was written by: Joseph Benden <joe@benden.us>
 dnl
@@ -51,13 +51,16 @@ then
 	#include <stdlib.h>
 	#include <string.h>
 	],[
+	#if defined(__APPLE__) && defined(__MACH__)
+	exit(0); /* Apple has these as macros */
+	#endif
 	#ifndef strlcpy
 	exit(1);
 	#endif
 	])], [have_bsd=yes])
 fi
 
-AM_CONDITIONAL([HAVE_STRLCAT], [test "$HAVE_STRLCAT" = yes || test "$have_bsd" = yes])
-AM_CONDITIONAL([HAVE_STRLCPY], [test "$HAVE_STRLCPY" = yes || test "$have_bsd" = yes])
+AM_CONDITIONAL([INCLUDE_COMPAT_STRLCAT], [test "$ac_cv_func_strlcat" != yes && test "$have_bsd" != yes])
+AM_CONDITIONAL([INCLUDE_COMPAT_STRLCPY], [test "$ac_cv_func_strlcpy" != yes && test "$have_bsd" != yes])
 
 ])

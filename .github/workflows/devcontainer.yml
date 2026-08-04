@@ -1,0 +1,86 @@
+name: Devcontainer build
+
+on:
+  push:
+    branches:
+      - 'main'
+    paths:
+      - '.devcontainer'
+      - '.github/workflows/devcontainer.yml'
+  schedule:
+    - cron: '30 3 1 * *'
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - 'main'
+    paths:
+      - '.devcontainer'
+      - '.github/workflows/devcontainer.yml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    steps:
+      -
+        name: Git Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: '.devcontainer/Dockerfile'
+          verbose: true
+      -
+        name: Lint devcontainer.json
+        run: python3 -m json.tool .devcontainer/devcontainer.json
+
+  docker-build:
+    runs-on: ubuntu-22.04
+    needs:
+      - lint
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      -
+        name: Build
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .devcontainer
+          push: false
+          platforms: ${{ matrix.platform }}
+  
+  devcontainer:
+    runs-on: ubuntu-22.04
+    needs:
+      - docker-build
+    timeout-minutes: 8
+    steps:
+      -
+        name: Git Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Set-up nodejs
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      -
+        name: Install devcontainer CLI
+        run: npm install -g @devcontainers/cli
+      -
+        name: Build the devcontainer
+        run: devcontainer build --workspace-folder .

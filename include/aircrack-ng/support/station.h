@@ -1,7 +1,7 @@
 /*
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2006-2009 Martin Beck <martin.beck2@gmx.de>
- *  Copyright (C) 2018-2020 Joseph Benden <joe@benden.us>
+ *  Copyright (C) 2018-2022 Joseph Benden <joe@benden.us>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -206,7 +206,7 @@ struct ST_info
 	int rate_from; /* last bitrate from station */
 	struct timeval ftimer; /* time of restart           */
 	int missed; /* number of missed packets  */
-	unsigned int lastseq; /* last seen sequnce number  */
+	unsigned int lastseq; /* last seen sequence number  */
 	int wpatype; /* 1=wpa1 2=wpa2             */
 	int wpahash; /* 1=md5(tkip) 2=sha1(ccmp)  */
 	int wep; /* capability encryption bit */

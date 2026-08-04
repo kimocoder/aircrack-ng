@@ -1,7 +1,7 @@
 /*
  *  802.11 to Ethernet pcap translator
  *
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005  Christophe Devine
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -37,7 +37,6 @@
 #include "config.h"
 #endif
 
-#include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -56,7 +55,7 @@
 static const char usage[] =
 
 	"\n"
-	"  %s - (C) 2006-2020 Thomas d\'Otreppe\n"
+	"  %s - (C) 2006-2022 Thomas d\'Otreppe\n"
 	"  https://www.aircrack-ng.org\n"
 	"\n"
 	"  usage: airdecap-ng [options] <pcap file>\n"
@@ -512,7 +511,8 @@ int main(int argc, char * argv[])
 				return (EXIT_FAILURE);
 			}
 
-			calc_pmk(opt.passphrase, opt.essid, opt.pmk);
+			calc_pmk(
+				(uint8_t *) opt.passphrase, (uint8_t *) opt.essid, opt.pmk);
 		}
 	}
 
@@ -761,7 +761,7 @@ int main(int argc, char * argv[])
 
 		/* check minimum size */
 
-		z = ((h80211[1] & 3) != 3) ? 24 : 30;
+		z = ((*(h80211 + 1) & 3) != 3) ? 24 : 30;
 
 		if (z + 16 > pkh.caplen) continue;
 
@@ -773,7 +773,7 @@ int main(int argc, char * argv[])
 
 		/* check the BSSID */
 
-		switch (h80211[1] & 3)
+		switch (*(h80211 + 1) & 3)
 		{
 			case 0:
 				memcpy(bssid, h80211 + 16, sizeof(bssid)); //-V525
@@ -811,7 +811,7 @@ int main(int argc, char * argv[])
 
 		/* locate the station's MAC address */
 
-		switch (h80211[1] & 3)
+		switch (*(h80211 + 1) & 3)
 		{
 			case 1:
 				memcpy(stmac, h80211 + 10, sizeof(stmac)); //-V525
@@ -862,7 +862,7 @@ int main(int argc, char * argv[])
 
 		crc = calc_crc_buf(h80211 + z, pkh.caplen - z);
 
-		if ((h80211[1] & 3) == 2)
+		if ((*(h80211 + 1) & 3) == 2)
 		{
 			if (st_cur->t_crc == crc) continue;
 
@@ -918,7 +918,7 @@ int main(int argc, char * argv[])
 
 				stats.nb_unwep++;
 
-				h80211[1] &= 0xBF;
+				*(h80211 + 1) &= 0xBF;
 
 				if (write_packet(f_out, &pkh, h80211) != 0) break;
 			}
@@ -976,7 +976,7 @@ int main(int argc, char * argv[])
 
 				stats.nb_unwpa++;
 
-				h80211[1] &= 0xBF;
+				*(h80211 + 1) &= 0xBF;
 
 				if (write_packet(f_out, &pkh, h80211) != 0) break;
 			}
@@ -1010,8 +1010,7 @@ int main(int argc, char * argv[])
 			/* frame 1: Pairwise == 1, Install == 0, Ack == 1, MIC == 0 */
 
 			if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) == 0
-				&& (h80211[z + 6] & 0x80) != 0
-				&& (h80211[z + 5] & 0x01) == 0)
+				&& (h80211[z + 6] & 0x80) != 0 && (h80211[z + 5] & 0x01) == 0)
 			{
 				/* set authenticator nonce */
 
@@ -1021,8 +1020,7 @@ int main(int argc, char * argv[])
 			/* frame 2 or 4: Pairwise == 1, Install == 0, Ack == 0, MIC == 1 */
 
 			if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) == 0
-				&& (h80211[z + 6] & 0x80) == 0
-				&& (h80211[z + 5] & 0x01) != 0)
+				&& (h80211[z + 6] & 0x80) == 0 && (h80211[z + 5] & 0x01) != 0)
 			{
 				if (memcmp(&h80211[z + 17], ZERO, 32) != 0)
 				{
@@ -1056,8 +1054,7 @@ int main(int argc, char * argv[])
 			/* frame 3: Pairwise == 1, Install == 1, Ack == 1, MIC == 1 */
 
 			if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) != 0
-				&& (h80211[z + 6] & 0x80) != 0
-				&& (h80211[z + 5] & 0x01) != 0)
+				&& (h80211[z + 6] & 0x80) != 0 && (h80211[z + 5] & 0x01) != 0)
 			{
 				if (memcmp(&h80211[z + 17], ZERO, 32) != 0)
 				{

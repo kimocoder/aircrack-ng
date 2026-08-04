@@ -1,7 +1,7 @@
 /*
  *  802.11 WEP / WPA-PSK Key Cracker
  *
- *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2022 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005 Christophe Devine
  *
  *  Advanced WEP attacks developed by KoreK
@@ -59,18 +59,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <sys/wait.h>
-#include <termios.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "aircrack-ng/defs.h"
 #include "aircrack-ng/ce-wpa/crypto_engine.h"
-#include "aircrack-ng/crypto/sha1-sse2.h"
-#include "aircrack-ng/ce-wpa/wpapsk.h"
 #include "aircrack-ng/aircrack-ng.h"
 #include "aircrack-ng/osdep/byteorder.h"
 #include "radiotap/platform.h"
@@ -112,14 +106,22 @@ static char * db = NULL; ///-V707
 #define H16800_BSSID_LEN 12
 #define H16800_STMAC_LEN 12
 
+#define SECOND_TO_MICROSEC 1e6
+
+/** Maximum duration over all four messages used in EAPOL 802.1x
+ *  authentication. Value must be in microseconds.
+ */
+static const uint64_t eapol_max_fourway_timeout = 5 * SECOND_TO_MICROSEC;
+/** Maximum duration between each of the four messages used in
+ *  EAPOL 802.1x authentication. Value must be in microseconds.
+ */
+static const uint64_t eapol_interframe_timeout = SECOND_TO_MICROSEC;
 /* stats global data */
 
 static volatile int wpa_cracked = 0;
 static int _pmkid_16800 = 0;
 static uint8_t _pmkid_16800_str[H16800_PMKID_LEN + H16800_BSSID_LEN
-								+ H16800_STMAC_LEN
-								+ MAX_PASSPHRASE_LENGTH
-								+ 3];
+								+ H16800_STMAC_LEN + MAX_PASSPHRASE_LENGTH + 3];
 static int _speed_test;
 static long _speed_test_length = 15;
 static struct timeval t_begin; /* time at start of attack      */
@@ -160,7 +162,7 @@ static struct WPA_data wpa_data[MAX_THREADS];
 static volatile int wpa_wordlists_done = 0;
 static pthread_mutex_t mx_nb = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t mx_wpastats = PTHREAD_MUTEX_INITIALIZER;
-static ac_cpuset_t * cpuset = NULL;
+static ac_cpuset_t * g_cpuset = NULL;
 
 typedef struct
 {
@@ -189,13 +191,13 @@ static int PTW_DEFAULTBF[PTW_KEYHSBYTES]
 	   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 static const unsigned char R[256] = {
-	0,   1,   2,   3,   4,   5,   6,   7,   8,   9,   10,  11,  12,  13,  14,
-	15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,
-	30,  31,  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,  42,  43,  44,
-	45,  46,  47,  48,  49,  50,  51,  52,  53,  54,  55,  56,  57,  58,  59,
-	60,  61,  62,  63,  64,  65,  66,  67,  68,  69,  70,  71,  72,  73,  74,
-	75,  76,  77,  78,  79,  80,  81,  82,  83,  84,  85,  86,  87,  88,  89,
-	90,  91,  92,  93,  94,  95,  96,  97,  98,  99,  100, 101, 102, 103, 104,
+	0,	 1,	  2,   3,	4,	 5,	  6,   7,	8,	 9,	  10,  11,	12,	 13,  14,
+	15,	 16,  17,  18,	19,	 20,  21,  22,	23,	 24,  25,  26,	27,	 28,  29,
+	30,	 31,  32,  33,	34,	 35,  36,  37,	38,	 39,  40,  41,	42,	 43,  44,
+	45,	 46,  47,  48,	49,	 50,  51,  52,	53,	 54,  55,  56,	57,	 58,  59,
+	60,	 61,  62,  63,	64,	 65,  66,  67,	68,	 69,  70,  71,	72,	 73,  74,
+	75,	 76,  77,  78,	79,	 80,  81,  82,	83,	 84,  85,  86,	87,	 88,  89,
+	90,	 91,  92,  93,	94,	 95,  96,  97,	98,	 99,  100, 101, 102, 103, 104,
 	105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119,
 	120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134,
 	135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149,
@@ -210,7 +212,7 @@ static const unsigned char R[256] = {
 
 static const char usage[]
 	= "\n"
-	  "  %s - (C) 2006-2020 Thomas d\'Otreppe\n"
+	  "  %s - (C) 2006-2022 Thomas d\'Otreppe\n"
 	  "  https://www.aircrack-ng.org\n"
 	  "\n"
 	  "  usage: aircrack-ng [options] <input file(s)>\n"
@@ -227,7 +229,7 @@ static const char usage[]
 	  "\n"
 	  "  Static WEP cracking options:\n"
 	  "\n"
-	  "      -c         : search alpha-numeric characters only\n"
+	  "      -c         : search alphanumeric characters only\n"
 	  "      -t         : search binary coded decimal chr only\n"
 	  "      -h         : search the numeric key for Fritz!BOX\n"
 	  "      -d <mask>  : use masking of the key (A1:XX:CF:YY)\n"
@@ -363,11 +365,17 @@ static void destroy_ap(struct AP_info * ap)
 
 	destroy(ap->uiv_root, uniqueiv_wipe);
 
-	if (ap->ptw_clean) destroy(ap->ptw_clean->allsessions, free);
-	destroy(ap->ptw_clean, free);
+	if (ap->ptw_clean)
+	{
+		destroy(ap->ptw_clean->allsessions, free);
+		free(ap->ptw_clean);
+	}
 
-	if (ap->ptw_vague) destroy(ap->ptw_vague->allsessions, free);
-	destroy(ap->ptw_vague, free);
+	if (ap->ptw_vague)
+	{
+		destroy(ap->ptw_vague->allsessions, free);
+		free(ap->ptw_vague);
+	}
 }
 
 static void ac_aplist_free(void)
@@ -695,10 +703,10 @@ static __attribute__((noinline)) void clean_exit(int ret)
 	dso_ac_crypto_engine_destroy(&engine);
 	ac_crypto_engine_loader_unload();
 
-	if (cpuset != NULL)
+	if (g_cpuset != NULL)
 	{
-		ac_cpuset_destroy(cpuset);
-		ac_cpuset_free(cpuset);
+		ac_cpuset_destroy(g_cpuset);
+		ac_cpuset_free(g_cpuset);
 	}
 
 	if (opt.totaldicts)
@@ -1232,7 +1240,7 @@ static int atomic_read(read_buf * rb, int fd, int len, void * buf)
 			{
 				n = read(fd,
 						 (char *) rb->buf1 + rb->off2,
-						 (size_t)(65536 - rb->off2));
+						 (size_t) (65536 - rb->off2));
 			}
 
 			if (close_aircrack) return (0);
@@ -1524,8 +1532,8 @@ skip_station:
 		if (memcmp(h80211 + 4, SPANTREE, ETHER_ADDR_LEN) == 0
 			|| memcmp(h80211 + 16, SPANTREE, ETHER_ADDR_LEN) == 0)
 		{
-			buffer[3] = (uint8_t)((buffer[3] ^ 0x42) ^ 0xAA);
-			buffer[4] = (uint8_t)((buffer[4] ^ 0x42) ^ 0xAA);
+			buffer[3] = (uint8_t) ((buffer[3] ^ 0x42) ^ 0xAA);
+			buffer[4] = (uint8_t) ((buffer[4] ^ 0x42) ^ 0xAA);
 		}
 
 		add_wep_iv(ap_cur, buffer, me);
@@ -1570,62 +1578,131 @@ skip_station:
 		return (1);
 	}
 
-	uint64_t replay_counter
+	const uint64_t now_us = pkh->tv_sec * SECOND_TO_MICROSEC + pkh->tv_usec;
+	const uint64_t replay_counter
 		= be64_to_cpu(get_unaligned((uint64_t *) (&h80211[z + 9])));
+
+	if (st_cur->wpa.timestamp_start_us > 0
+		&& subs_u64(now_us, st_cur->wpa.timestamp_start_us)
+			   > eapol_max_fourway_timeout)
+	{
+		fprintf(stderr, "Resetting EAPOL Handshake decoder state.\n");
+		memset(&st_cur->wpa, 0, sizeof(struct WPA_hdsk));
+	}
 
 	/* frame 1: Pairwise == 1, Install == 0, Ack == 1, MIC == 0 */
 
 	if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) == 0
-		&& (h80211[z + 6] & 0x80) != 0
-		&& (h80211[z + 5] & 0x01) == 0)
+		&& (h80211[z + 6] & 0x80) != 0 && (h80211[z + 5] & 0x01) == 0)
 	{
-		memcpy(st_cur->wpa.anonce, &h80211[z + 17], sizeof(st_cur->wpa.anonce));
-
-		st_cur->wpa.tv_sec = pkh->tv_sec;
-		st_cur->wpa.tv_usec = pkh->tv_usec;
+		if (st_cur->wpa.timestamp_start_us == 0)
+		{
+			st_cur->wpa.timestamp_start_us = now_us;
+			st_cur->wpa.timestamp_last_us = now_us;
+		}
+		if (subs_u64(now_us, st_cur->wpa.timestamp_last_us)
+			> eapol_interframe_timeout)
+		{
+			// exceeds the inter-frame timeout period
+			memset(&st_cur->wpa, 0, sizeof(struct WPA_hdsk));
+			st_cur->wpa.timestamp_start_us = now_us;
+		}
+		// update last recv time.
+		st_cur->wpa.timestamp_last_us = now_us;
 
 		/* authenticator nonce set */
 		st_cur->wpa.state = 1;
+		memcpy(st_cur->wpa.anonce, &h80211[z + 17], sizeof(st_cur->wpa.anonce));
 
 		st_cur->wpa.found |= 1 << 1;
 
 		st_cur->wpa.replay = replay_counter;
 
-		if (h80211[z + 99] == 0xdd) // RSN
-		{
-			if (h80211[z + 101] == 0x00 && h80211[z + 102] == 0x0f
-				&& h80211[z + 103] == 0xac) // OUI: IEEE8021
-			{
-				if (h80211[z + 104] == 0x04) // OUI SUBTYPE
-				{
-					// Got a PMKID value?!
-					memcpy(st_cur->wpa.pmkid, &h80211[z + 105], 16);
+		uint8_t key_descriptor_version = (uint8_t) (h80211[z + 6] & 7);
 
-					/* copy the key descriptor version */
-					st_cur->wpa.keyver = (uint8_t)(h80211[z + 6] & 7);
+		p = h80211 + z + 99;
+
+		while (p < h80211 + pkh->caplen)
+		{
+			if (p + 2 + p[1] > h80211 + pkh->caplen) break;
+#ifdef XDEBUG
+			fprintf(stderr, "IE element: %d\n", p[0]);
+			fprintf(stderr, "IE length: %d\n", p[1]);
+#endif
+			if (p[0] == IEEE80211_ELEMID_VENDOR)
+			{
+				size_t rsn_len = p[1];
+				size_t pos = 2;
+				const uint8_t rsn_oui[] = {RSN_OUI & 0xff,
+										   (RSN_OUI >> 8) & 0xff,
+										   (RSN_OUI >> 16) & 0xff};
+#ifdef XDEBUG
+				fprintf(stderr, "RSN length: %zd\n", rsn_len);
+				fprintf(stderr,
+						"OUI is %02x:%02x:%02x\n",
+						p[pos],
+						p[pos + 1],
+						p[pos + 2]);
+#endif
+				if (memcmp(rsn_oui, &p[pos], 3) == 0)
+				{
+					if (pos + 3 > rsn_len) goto rsn_out;
+					pos += 3; // advance over RSN OUI
+
+#ifdef XDEBUG
+					fprintf(stderr,
+							"The cipher tag value '%d' is used with the key "
+							"descriptor version '%d'\n",
+							p[pos],
+							key_descriptor_version);
+#endif
+					if (pos + 1 > rsn_len) goto rsn_out;
+					pos += 1; // advance over tag value
+
+					if (key_descriptor_version > 0
+						&& memcmp(ZERO, &p[pos], 16) //-V512
+							   != 0)
+					{
+#ifdef XDEBUG
+						fprintf(stderr, "FOUND valid CCM PMKID\n");
+#endif
+						// Got a PMKID value?!
+						memcpy(st_cur->wpa.pmkid, &p[pos], 16);
+
+						/* copy the key descriptor version */
+						st_cur->wpa.keyver = key_descriptor_version;
+					}
 				}
 			}
+
+			p += 2 + p[1];
 		}
+	rsn_out:;
 	}
 
 	/* frame 2 or 4: Pairwise == 1, Install == 0, Ack == 0, MIC == 1 */
 
 	if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) == 0
-		&& (h80211[z + 6] & 0x80) == 0
-		&& (h80211[z + 5] & 0x01) != 0)
+		&& (h80211[z + 6] & 0x80) == 0 && (h80211[z + 5] & 0x01) != 0)
 	{
-		if ((st_cur->wpa.found & (1 << 1)) == (1 << 1))
+		if (st_cur->wpa.timestamp_start_us == 0)
 		{
-			if (st_cur->wpa.tv_sec != 0
-				&& (pkh->tv_sec - st_cur->wpa.tv_sec) >= 5)
-			{
-				st_cur->wpa.state &= ~1;
-				st_cur->wpa.found &= ~(1 << 1);
-			}
+			st_cur->wpa.timestamp_start_us = now_us;
+			st_cur->wpa.timestamp_last_us = now_us;
 		}
-
-		st_cur->wpa.tv_sec = pkh->tv_sec;
-		st_cur->wpa.tv_usec = pkh->tv_usec;
+		INVARIANT(now_us > 0);
+		INVARIANT(st_cur->wpa.timestamp_start_us != 0);
+		INVARIANT(st_cur->wpa.timestamp_last_us != 0);
+		if (subs_u64(now_us, st_cur->wpa.timestamp_last_us)
+			> eapol_interframe_timeout)
+		{
+			// exceeds the inter-frame timeout period
+			st_cur->wpa.found &= ~((1 << 4) | (1 << 2)); // unset M2 and M4
+			fprintf(stderr, "Inter-frame timeout period exceeded.\n");
+			return (1);
+		}
+		// update last recv time.
+		st_cur->wpa.timestamp_last_us = now_us;
 
 		if (st_cur->wpa.state == 0)
 		{
@@ -1665,7 +1742,7 @@ skip_station:
 		{
 			/* copy the MIC & eapol frame */
 			st_cur->wpa.eapol_size
-				= (uint32_t)((h80211[z + 2] << 8) + h80211[z + 3] + 4);
+				= (uint32_t) ((h80211[z + 2] << 8) + h80211[z + 3] + 4);
 
 			if (st_cur->wpa.eapol_size == 0 //-V560
 				|| st_cur->wpa.eapol_size > sizeof(st_cur->wpa.eapol)
@@ -1694,7 +1771,7 @@ skip_station:
 			st_cur->wpa.state |= 4;
 
 			/* copy the key descriptor version */
-			st_cur->wpa.keyver = (uint8_t)(h80211[z + 6] & 7);
+			st_cur->wpa.keyver = (uint8_t) (h80211[z + 6] & 7);
 		}
 	}
 
@@ -1702,21 +1779,25 @@ skip_station:
 	/* M3's replay counter MUST be larger than M1/M2's. */
 
 	if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) != 0
-		&& (h80211[z + 6] & 0x80) != 0
-		&& (h80211[z + 5] & 0x01) != 0
+		&& (h80211[z + 6] & 0x80) != 0 && (h80211[z + 5] & 0x01) != 0
 		&& st_cur->wpa.replay < replay_counter)
 	{
-		if ((st_cur->wpa.found & (1 << 1 | 1 << 2)) != 0)
+		if (st_cur->wpa.timestamp_start_us == 0)
 		{
-			if (st_cur->wpa.tv_sec != 0
-				&& (pkh->tv_sec - st_cur->wpa.tv_sec) >= 5)
-			{
-				st_cur->wpa.state &= ~(1 | 2);
-				st_cur->wpa.found &= ~(1 << 1 | 1 << 2);
-			}
+			st_cur->wpa.timestamp_start_us = now_us;
+			st_cur->wpa.timestamp_last_us = now_us;
 		}
-		st_cur->wpa.tv_sec = pkh->tv_sec;
-		st_cur->wpa.tv_usec = pkh->tv_usec;
+		INVARIANT(st_cur->wpa.timestamp_last_us != 0);
+		if (subs_u64(now_us, st_cur->wpa.timestamp_last_us)
+			> eapol_interframe_timeout)
+		{
+			// exceeds the inter-frame timeout period
+			st_cur->wpa.found &= ~(1 << 3); // unset M3
+			fprintf(stderr, "Inter-frame timeout period exceeded.\n");
+			return (1);
+		}
+		// update last recv time.
+		st_cur->wpa.timestamp_last_us = now_us;
 
 		st_cur->wpa.found |= 1 << 3;
 		// Store M3 for comparison with M4.
@@ -1736,7 +1817,7 @@ skip_station:
 		{
 			/* copy the MIC & eapol frame */
 			st_cur->wpa.eapol_size
-				= (uint32_t)((h80211[z + 2] << 8) + h80211[z + 3] + 4);
+				= (uint32_t) ((h80211[z + 2] << 8) + h80211[z + 3] + 4);
 
 			if (st_cur->wpa.eapol_size == 0 //-V560
 				|| st_cur->wpa.eapol_size > sizeof(st_cur->wpa.eapol)
@@ -1758,7 +1839,7 @@ skip_station:
 			st_cur->wpa.state |= 4;
 
 			/* copy the key descriptor version */
-			st_cur->wpa.keyver = (uint8_t)(h80211[z + 6] & 7);
+			st_cur->wpa.keyver = (uint8_t) (h80211[z + 6] & 7);
 		}
 	}
 
@@ -2186,6 +2267,8 @@ static THREAD_ENTRY(packet_reader_thread)
 			{
 				pkh.caplen = ___my_swab32(pkh.caplen);
 				pkh.len = ___my_swab32(pkh.len);
+				pkh.tv_sec = ___my_swab32(pkh.tv_sec);
+				pkh.tv_usec = ___my_swab32(pkh.tv_usec);
 			}
 
 			if (pkh.caplen <= 0 || pkh.caplen > 65535)
@@ -2415,9 +2498,10 @@ static THREAD_ENTRY(crack_wep_thread)
 		min = 5 * (((cid) *wep.nb_ivs) / opt.nbcpu);
 		max = 5 * (((1 + cid) * wep.nb_ivs) / opt.nbcpu);
 
-		q = (uint8_t)(3 + B);
+		q = (uint8_t) (3 + B);
 
-		memcpy(K + 3, wep.key, (size_t) B);
+		if (B > 0 && (size_t) B < sizeof(wep.key) - 3)
+			memcpy(K + 3, wep.key, (size_t) B);
 		memset(votes, 0, sizeof(votes));
 
 		/* START: KoreK attacks */
@@ -2437,9 +2521,13 @@ static THREAD_ENTRY(crack_wep_thread)
 
 			memcpy(K, &wep.ivbuf[xv], 3); //-V512
 
+			INVARIANT((size_t) q < sizeof(K));
 			for (i = j = 0; i < q; i++)
 			{
-				jj[i] = (uint8_t)((j + S[i] + K[i]) & 0xFF);
+				INVARIANT((size_t) i < sizeof(K));
+				INVARIANT((size_t) i < sizeof(S));
+
+				jj[i] = (uint8_t) ((j + S[i] + K[i]) & 0xFF);
 				j = (j + S[i] + K[i]) & 0xFF;
 				SWAP(S[i], S[j]);
 			}
@@ -2451,10 +2539,10 @@ static THREAD_ENTRY(crack_wep_thread)
 				SWAP(Si[i], Si[jj[i]]);
 			} while (i != 0);
 
-			o1 = (uint8_t)(wep.ivbuf[xv + 3] ^ 0xAA);
+			o1 = (uint8_t) (wep.ivbuf[xv + 3] ^ 0xAA);
 			io1 = Si[o1];
 			S1 = S[1];
-			o2 = (uint8_t)(wep.ivbuf[xv + 4] ^ 0xAA);
+			o2 = (uint8_t) (wep.ivbuf[xv + 4] ^ 0xAA);
 			io2 = Si[o2];
 			S2 = S[2];
 
@@ -2935,12 +3023,12 @@ static int check_wep_key(unsigned char * wepkey, int B, int keylen)
 		}
 
 		i = 1;
-		j = (size_t)((0 + S[i]) & 0xFF);
+		j = (size_t) ((0 + S[i]) & 0xFF);
 		SWAP(S[i], S[j]);
 		x1 = wep.ivbuf[xv + 3] ^ S[(S[i] + S[j]) & 0xFF];
 
 		i = 2;
-		j = (size_t)((j + S[i]) & 0xFF);
+		j = (size_t) ((j + S[i]) & 0xFF);
 		SWAP(S[i], S[j]);
 		x2 = wep.ivbuf[xv + 4] ^ S[(S[i] + S[j]) & 0xFF];
 
@@ -3013,7 +3101,7 @@ static int calc_poll(int B)
 
 	if (opt.debug_row[B]) wep.poll[B][opt.debug[B]].val = 32767;
 
-	/* if option is set, restrict keyspace to alpha-numeric */
+	/* if option is set, restrict keyspace to alphanumeric */
 
 	if (opt.is_alnum)
 	{
@@ -3722,8 +3810,9 @@ static void show_wpa_stats(char * key,
 
 		if (_speed_test_length > 0 && delta >= (float) _speed_test_length)
 		{
-			printf("\n");
-			exit(EXIT_SUCCESS);
+			close_aircrack = 1;
+			close_aircrack_fast = 1;
+			goto __out;
 		}
 
 		goto __out;
@@ -4040,8 +4129,7 @@ static THREAD_ENTRY(crack_wpa_thread)
 
 				// Do we see our HAZARD value?
 				if (our_key[0] == 0xff && our_key[1] == 0xff
-					&& our_key[2] == 0xff
-					&& our_key[3] == 0xff)
+					&& our_key[2] == 0xff && our_key[3] == 0xff)
 				{
 					done = true; // Yes!
 					break; // Exit for loop; process remaining.
@@ -4151,8 +4239,7 @@ static THREAD_ENTRY(crack_wpa_pmkid_thread)
 
 				// Do we see our HAZARD value?
 				if (our_key[0] == 0xff && our_key[1] == 0xff
-					&& our_key[2] == 0xff
-					&& our_key[3] == 0xff)
+					&& our_key[2] == 0xff && our_key[3] == 0xff)
 				{
 					done = true; // Yes!
 					break; // Exit for loop; process remaining.
@@ -4213,6 +4300,8 @@ static __attribute__((noinline)) int next_dict(int nb)
 {
 	size_t tmpword = 0;
 
+	ALLEGE(nb >= 0);
+
 	ALLEGE(pthread_mutex_lock(&mx_dic) == 0);
 	if (opt.dict != NULL)
 	{
@@ -4220,11 +4309,6 @@ static __attribute__((noinline)) int next_dict(int nb)
 		opt.dict = NULL;
 	}
 	opt.nbdict = nb;
-	if (opt.dicts[opt.nbdict] == NULL)
-	{
-		ALLEGE(pthread_mutex_unlock(&mx_dic) == 0);
-		return (FAILURE);
-	}
 
 	while (opt.nbdict < MAX_DICTS && opt.dicts[opt.nbdict] != NULL)
 	{
@@ -4936,7 +5020,8 @@ static int next_key(char ** key, int keysize)
 
 			while (i < keysize && hex != NULL)
 			{
-				if (strlen(hex) > 2 || strlen(hex) == 0)
+				const size_t hex_len = strlen(hex);
+				if (hex_len == 0 || hex_len > 2)
 				{
 					rtn = 1;
 					break;
@@ -5576,10 +5661,10 @@ static int perform_wpa_crack(struct AP_info * ap_cur)
 		return (missing_wordlist_dictionary(ap_cur));
 	}
 
-	cpuset = ac_cpuset_new();
-	ALLEGE(cpuset);
-	ac_cpuset_init(cpuset);
-	ac_cpuset_distribute(cpuset, (size_t) opt.nbcpu);
+	g_cpuset = ac_cpuset_new();
+	ALLEGE(g_cpuset);
+	ac_cpuset_init(g_cpuset);
+	ac_cpuset_distribute(g_cpuset, (size_t) opt.nbcpu);
 
 	ap_cur = get_first_target();
 
@@ -5666,7 +5751,7 @@ static int perform_wpa_crack(struct AP_info * ap_cur)
 				return (FAILURE);
 			}
 
-			ac_cpuset_bind_thread_at(cpuset, tid[id], (size_t) i);
+			ac_cpuset_bind_thread_at(g_cpuset, tid[id], (size_t) i);
 
 			id++;
 		}
@@ -5865,7 +5950,10 @@ int main(int argc, char * argv[])
 	int old = 0;
 	char essid[ESSID_LENGTH + 1];
 	int restore_session = 0;
+#if defined(__i386__) || defined(__x86_64__) || defined(__arm__)               \
+	|| defined(__aarch64__)
 	int in_use_simdsize = 0;
+#endif
 	int nbarg = argc;
 	access_points = c_avl_create(station_compare);
 	targets = c_avl_create(station_compare);
@@ -5883,9 +5971,9 @@ int main(int argc, char * argv[])
 
 	rand_init();
 
-	memset(&mc_pipe[0][0], -1, sizeof(mc_pipe));
-	memset(&cm_pipe[0][0], -1, sizeof(cm_pipe));
-	memset(&bf_pipe[0][0], -1, sizeof(bf_pipe));
+	memset(mc_pipe, -1, sizeof(mc_pipe));
+	memset(cm_pipe, -1, sizeof(cm_pipe));
+	memset(bf_pipe, -1, sizeof(bf_pipe));
 
 #if DYNAMIC
 	// Load the best available shared library, or the user specified one.
@@ -5958,8 +6046,9 @@ int main(int argc, char * argv[])
 	}
 
 	// Check if we are restoring from a session
-	if (nbarg == 3 && (strcmp(argv[1], "--restore-session") == 0
-					   || strcmp(argv[1], "-R") == 0))
+	if (nbarg == 3
+		&& (strcmp(argv[1], "--restore-session") == 0
+			|| strcmp(argv[1], "-R") == 0))
 	{
 		cracking_session = ac_session_load(argv[2]);
 		if (cracking_session == NULL)
@@ -5999,7 +6088,8 @@ int main(int argc, char * argv[])
 		// Load argc/argv either from the cracking session or from arguments
 		option = getopt_long(
 			nbarg,
-			((restore_session) ? cracking_session->argv : argv),
+			((restore_session && cracking_session) ? cracking_session->argv
+												   : argv),
 			"r:a:e:b:p:qcthd:l:E:J:m:n:i:f:k:x::XysZ:w:0HKC:M:DP:zV1Suj:N:R:I:",
 			long_options,
 			&option_index);
@@ -6177,11 +6267,13 @@ int main(int argc, char * argv[])
 				{
 					fprintf(stderr,
 							"Specifying more processes (%d) than available "
-							"CPUs (%d) will cause performance degradation.\n",
+							"CPUs (%d) would cause performance degradation.\n",
 							nbcpu,
 							cpu_count);
+					opt.nbcpu = cpu_count;
 				}
-				opt.nbcpu = nbcpu;
+				else
+					opt.nbcpu = nbcpu;
 
 				break;
 			}
@@ -6284,8 +6376,7 @@ int main(int argc, char * argv[])
 
 				opt.keylen = (int) strtol(optarg, NULL, 10);
 				if (opt.keylen != 64 && opt.keylen != 128 && opt.keylen != 152
-					&& opt.keylen != 256
-					&& opt.keylen != 512)
+					&& opt.keylen != 256 && opt.keylen != 512)
 				{
 					printf("Invalid WEP key length. [64,128,152,256,512]\n");
 					printf("\"%s --help\" for help.\n", argv[0]);
@@ -6555,7 +6646,7 @@ int main(int argc, char * argv[])
 
 		ap_cur->target = 1;
 		ap_cur->wpa.state = 7;
-		ap_cur->wpa.keyver = (uint8_t)(opt.amode & 0xFF);
+		ap_cur->wpa.keyver = (uint8_t) (opt.amode & 0xFF);
 		strcpy((char *) ap_cur->essid, "sorbo");
 		strcpy((char *) ap_cur->bssid, "deadb");
 		c_avl_insert(targets, ap_cur->bssid, ap_cur);
@@ -6655,7 +6746,7 @@ int main(int argc, char * argv[])
 		ap_cur->crypt = 4;
 		ap_cur->target = 1;
 		ap_cur->wpa.state = 5;
-		ap_cur->wpa.keyver = (uint8_t)(opt.amode & 0xFF);
+		ap_cur->wpa.keyver = (uint8_t) (opt.amode & 0xFF);
 
 		hexStringToArray((char *) _pmkid_16800_str,
 						 H16800_PMKID_LEN,
@@ -6666,21 +6757,16 @@ int main(int argc, char * argv[])
 						 ap_cur->bssid,
 						 sizeof(ap_cur->bssid));
 		hexStringToArray((char *) _pmkid_16800_str + H16800_PMKID_LEN + 1
-							 + H16800_BSSID_LEN
-							 + 1,
+							 + H16800_BSSID_LEN + 1,
 						 H16800_STMAC_LEN,
 						 ap_cur->wpa.stmac,
 						 sizeof(ap_cur->wpa.stmac));
-		hexStringToArray(
-			(char *) _pmkid_16800_str + H16800_PMKID_LEN + 1 + H16800_BSSID_LEN
-				+ 1
-				+ H16800_STMAC_LEN
-				+ 1,
-			(int) remaining - H16800_PMKID_LEN + 1 + H16800_BSSID_LEN + 1
-				+ H16800_STMAC_LEN
-				+ 1,
-			ap_cur->essid,
-			sizeof(ap_cur->essid));
+		hexStringToArray((char *) _pmkid_16800_str + H16800_PMKID_LEN + 1
+							 + H16800_BSSID_LEN + 1 + H16800_STMAC_LEN + 1,
+						 (int) remaining - H16800_PMKID_LEN + 1
+							 + H16800_BSSID_LEN + 1 + H16800_STMAC_LEN + 1,
+						 ap_cur->essid,
+						 sizeof(ap_cur->essid));
 
 		c_avl_insert(targets, ap_cur->bssid, ap_cur);
 
@@ -6933,6 +7019,7 @@ int main(int argc, char * argv[])
 		fflush(stdout);
 	}
 
+	// NOTE: Reset internal logic used from CHECK, prior to full READ/PROCESS...
 	if (ap_cur != NULL)
 	{
 		if (ap_cur->uiv_root != NULL)
@@ -6945,6 +7032,20 @@ int main(int argc, char * argv[])
 		ap_cur->ivbuf_size = 0;
 
 		destroy(ap_cur->ivbuf, free);
+
+		// Destroy WPA struct in all stations of the selected AP
+		if (ap_cur->stations != NULL)
+		{
+			void * key = NULL;
+			struct ST_info * st_tmp = NULL;
+
+			while (c_avl_pick(ap_cur->stations, &key, (void **) &st_tmp) == 0)
+			{
+				INVARIANT(st_tmp != NULL);
+
+				memset(&st_tmp->wpa, 0, sizeof(struct WPA_hdsk));
+			}
+		}
 	}
 
 	do

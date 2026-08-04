@@ -1,0 +1,129 @@
+name: Clang Scan-build
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - '.github/workflows/scanbuild.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * *"
+  pull_request:
+    branches: [ master ]
+    paths-ignore:
+      - apparmor/**
+      - contrib/**
+      - manpages/**
+      - patches/**
+      - '.coverityignore'
+      - '.github/workflows/gentoo.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/almalinux.yml'
+      - '.github/workflows/alpine.yml'
+      - '.github/workflows/check-actions-updates.yml'
+      - '.github/workflows/check-release-ready.yml'
+      - '.github/workflows/codespell.yml'
+      - '.github/workflows/coverity.yml'
+      - '.github/workflows/devcontainer.yml'
+      - '.github/workflows/docker.yml'
+      - '.github/workflows/docker-release.yml'
+      - '.github/workflows/dragonflybsd.yml'
+      - '.github/workflows/freebsd.yml'
+      - '.github/workflows/gcc.yml'
+      - '.github/workflows/irc.yml'
+      - '.github/workflows/kali.yml'
+      - '.github/workflows/linux.yml'
+      - '.github/workflows/linux-pcre.yml'
+      - '.github/workflows/macos.yml'
+      - '.github/workflows/manual.yml'
+      - '.github/workflows/markdown-link.yml'
+      - '.github/workflows/netbsd.yml'
+      - '.github/workflows/openbsd.yml'
+      - '.github/workflows/pvs-studio.yml'
+      - '.github/workflows/style.yml'
+      - '.github/workflows/windows.yml'
+      - '.vscode/**'
+      - '.devcontainer/**'
+      - '.clang-format'
+      - '.codespellrc'
+      - '.editorconfig'
+      - '.gitignore'
+      - '.pre-commit-config.yaml'
+      - 'AC_VERSION.in'
+      - 'AUTHORS'
+      - 'centos_autotools.sh'
+      - 'ChangeLog'
+      - 'docker_package_install.sh'
+      - 'Dockerfile'
+      - 'Dockerfile.release'
+      - 'INSTALLING'
+      - 'LICENSE'
+      - 'LICENSE.OpenSSL'
+      - 'README'
+      - 'README.md'
+      - 'SECURITY.md'
+      - 'scripts/airmon-ng.freebsd'
+
+jobs:
+  scanbuild:
+    runs-on: ubuntu-22.04
+    steps:
+      - 
+        name: Git Checkout
+        uses: actions/checkout@v4
+      -
+        name: Add LLVM repo
+        uses: myci-actions/add-deb-repo@11
+        with:
+          repo: deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main
+          repo-name: llvm
+          keys-asc: https://apt.llvm.org/llvm-snapshot.gpg.key
+      -
+        name: Install required tools
+        run: |
+              sudo apt-get update
+              sudo apt-get install clang-18 clang-tools-18 build-essential autoconf automake libtool \
+                          pkg-config libnl-3-dev libnl-genl-3-dev libssl-dev ethtool \
+                          shtool rfkill zlib1g-dev libpcap-dev libsqlite3-dev libpcre2-dev \
+                          libhwloc-dev libcmocka-dev hostapd wpasupplicant tcpdump screen \
+                          iw usbutils expect git -y
+      -
+        name: Build and run scan-build
+        id: scanbuild
+        run: |
+          SCANBUILD_DIR=/tmp/scanbuild
+          CPUS=$(nproc)
+          autoreconf -vif
+          CC=clang-18 CXX=clang++-18 ./configure --with-experimental --enable-maintainer-mode || { cat config.log; exit 1; }
+          mkdir "${SCANBUILD_DIR}"
+          scan-build-18 -sarif -o "${SCANBUILD_DIR}" -enable-checker alpha.security.taint.TaintPropagation -enable-checker alpha.security.ArrayBoundV2 make -j ${CPUS}
+          echo "directory=${SCANBUILD_DIR}/$(ls -1 ${SCANBUILD_DIR})" >> $GITHUB_OUTPUT
+      -
+        name: Merge SARIF files
+        run: |
+          npm i @microsoft/sarif-multitool
+          npx sarif-multitool merge ${{steps.scanbuild.outputs.directory}}/*.sarif --recurse --output-directory=. --output-file=results.sarif
+
+      -
+        name: Upload SARIF file
+        if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: scanbuild
+
+      -
+        name: Archive artifacts (Pull request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanbuild-pr-${{ github.event.number }}
+          path: results.sarif
+
+      -
+        name: Archive artifacts (Push)
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanbuild
+          path: results.sarif

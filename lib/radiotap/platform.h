@@ -5,6 +5,15 @@
 #if defined(linux) || defined(Linux) || defined(__linux__) || defined(__linux) \
         || defined(__gnu_linux__)
 #include <endian.h>
+#if defined(__UCLIBC__)
+#include <asm/byteorder.h>
+#ifndef le16toh
+#define le16toh __le16_to_cpu
+#endif
+#ifndef le32toh
+#define le32toh __le32_to_cpu
+#endif
+#endif
 #endif
 
 #if defined(__CYGWIN32__) || defined(CYGWIN)
@@ -14,6 +23,10 @@
 
 #if defined(__APPLE__)
 #include <machine/endian.h>
+#endif
+
+#if defined (__gnu_hurd__)
+#include <endian.h>
 #endif
 
 #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__OpenBSD__) || defined(__MidnightBSD__) || defined(__NetBSD__)
