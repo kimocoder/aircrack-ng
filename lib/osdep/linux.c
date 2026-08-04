@@ -2726,7 +2726,10 @@ EXPORT int get_battery_state(void)
 						 &flag,
 						 &batteryTime,
 						 units);
-			if (!ret) return 0;
+			/* A short or malformed /proc/apm line stops sscanf part way
+			 * through, leaving the remaining variables unset, so require
+			 * every conversion rather than just a non-zero result. */
+			if (ret != 5) return 0;
 
 			if ((flag & 0x80) == 0 && charging != 0xFF && ac != 1
 				&& batteryTime == -1)
