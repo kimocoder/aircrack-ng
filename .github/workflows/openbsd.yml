@@ -146,18 +146,26 @@ jobs:
         id: build
         uses: vmactions/openbsd-vm@v1
         with:
-          # Pin the OpenBSD release: the package list below targets the
-          # autoconf-2.71 / automake-1.16.5 versions and the single llvm /
-          # openssl candidates that ship with 7.6. The unpinned default now
-          # tracks a newer snapshot where those exact versions are gone and
-          # llvm/openssl became ambiguous, which broke `pkg_add`.
-          release: '7.6'
+          # Deliberately unpinned. OpenBSD only serves packages for the
+          # releases it still supports, so pinning one guarantees the job dies
+          # the day that release ages out — /pub/OpenBSD/7.6/packages/amd64/ is
+          # already a 404 and took every pkg_add with it.
+          #
+          # The package list only names things that exist across the supported
+          # releases and resolve to exactly one candidate:
+          #   - llvm    dropped, ambiguous (19/20/21 in 7.9) and unnecessary,
+          #             the run below builds with base clang
+          #   - openssl dropped, ambiguous (3.5 and 4.0 in 7.9); base LibreSSL
+          #             already provides /usr/include/openssl
+          #   - pkgconf dropped, no longer packaged after 7.7 (it lives in base)
+          # autoconf-2.71 and automake-1.16.5 are still packaged in 7.7-7.9, so
+          # AUTOCONF_VERSION / AUTOMAKE_VERSION below stay as they are.
           envs: 'LANG TZ MAKE'
           usesh: true
           sync: rsync
           copyback: false
           prepare: |
-            pkg_add git pkgconf shtool libtool llvm automake-1.16.5 autoconf-2.71 pcre2 sqlite3 openssl gmake cmocka
+            pkg_add git shtool libtool automake-1.16.5 autoconf-2.71 pcre2 sqlite3 gmake cmocka
           run: |
             export CC="clang"
             export CXX="clang++"
