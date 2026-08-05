@@ -197,7 +197,7 @@ elif [ "${ID}" = 'gentoo' ]; then
     cat <<EOF >/etc/portage/binrepos.conf/osuosl.conf
 [binhost]
 priority = 9999
-sync-uri = https://gentoo.osuosl.org/experimental/amd64/binpkg/default/linux/17.1/x86-64/
+sync-uri = https://gentoo.osuosl.org/releases/amd64/binpackages/23.0/x86-64/
 EOF
     # shellcheck disable=SC2016
     echo 'FEATURES="${FEATURES} -ipc-sandbox -network-sandbox -pid-sandbox"' >> /etc/portage/make.conf
