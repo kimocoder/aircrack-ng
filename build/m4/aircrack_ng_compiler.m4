@@ -188,6 +188,14 @@ AS_IF([test "x$enable_maintainer_mode" = "xyes"], [
             AX_CHECK_COMPILE_FLAG([-Werror -Wno-gnu-zero-variadic-macro-arguments], [
                 AX_APPEND_FLAG(-Wno-gnu-zero-variadic-macro-arguments, [opt_[]_AC_LANG_ABBREV[]flags])
             ])
+
+            dnl GCC 15 added -Wunterminated-string-initialization, which -Wall
+            dnl enables. The test vectors are fixed size byte arrays written as
+            dnl strings, so the dropped terminator is deliberate there and the
+            dnl warning only breaks -Werror builds.
+            AX_CHECK_COMPILE_FLAG([-Werror -Wno-unterminated-string-initialization], [
+                AX_APPEND_FLAG(-Wno-unterminated-string-initialization, [opt_[]_AC_LANG_ABBREV[]flags])
+            ])
         ;;
     esac
 ])
