@@ -717,12 +717,23 @@ sql_exportcow(void * arg, int ccount, char ** values, char ** columnnames)
 	}
 
 	char * passwd = (char *) values[0];
+	unsigned char passwd_digest[32];
+	char passwd_hex[65];
+	size_t i;
+
+	sha256((const unsigned char *) passwd, strlen(passwd), passwd_digest);
+	for (i = 0; i < sizeof(passwd_digest); i++)
+	{
+		snprintf(&passwd_hex[i * 2], 3, "%02x", passwd_digest[i]);
+	}
+	passwd_hex[64] = '\0';
 
 	memcpy(rec.pmk, values[1], sizeof(rec.pmk));
-	rec.rec_size = strlen(passwd) + sizeof(rec.pmk) + sizeof(rec.rec_size);
+	rec.rec_size
+		= strlen(passwd_hex) + sizeof(rec.pmk) + sizeof(rec.rec_size);
 
 	int rc = fwrite(&rec.rec_size, sizeof(rec.rec_size), 1, f);
-	rc += fwrite(passwd, strlen(passwd), 1, f);
+	rc += fwrite(passwd_hex, strlen(passwd_hex), 1, f);
 	rc += fwrite(rec.pmk, sizeof(rec.pmk), 1, f);
 	if (rc != 3)
 	{
